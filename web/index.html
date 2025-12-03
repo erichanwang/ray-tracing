@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ray Tracing - Interactive Lighting</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Ray Tracing - Interactive Lighting</h1>
+            <div class="controls">
+                <button id="toggleLights" class="btn btn-primary">Lights: ON</button>
+                <button id="addRays" class="btn btn-secondary">+ Rays</button>
+                <button id="removeRays" class="btn btn-secondary">- Rays</button>
+                <span class="ray-count">Rays: <span id="rayCount">10</span></span>
+            </div>
+        </div>
+        
+        <canvas id="gameCanvas" width="1024" height="768"></canvas>
+        
+        <div class="instructions">
+            <p><strong>Controls:</strong> Use Arrow Keys or WASD to move the player (yellow circle)</p>
+            <p><strong>Lights:</strong> Toggle between seeing the full world (Lights ON) or only what the rays illuminate (Lights OFF)</p>
+            <p><strong>Rays:</strong> Increase or decrease the number of rays emanating from the player</p>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
