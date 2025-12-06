@@ -10,7 +10,7 @@ class MapVisualizer:
         self.draw_map()
 
     def draw_map(self):
-        with open("web/map.js", "r") as f:
+        with open("web2/map.js", "r") as f:
             js_content = f.read()
             # Extract the JSON part of the JavaScript file
             json_content = js_content[js_content.find("[") : js_content.rfind("]") + 1]
