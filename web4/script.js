@@ -2,11 +2,11 @@
 // Interactive lighting system with ray casting
 
 class Player {
-    constructor(x, y, radius = 3) {
+    constructor(x, y, radius = 6) {
         this.x = x;
         this.y = y;
         this.radius = radius;
-        this.speed = 3;
+        this.speed = 10;
     }
 
     update(keys, walls, width, height, camera) {
@@ -35,17 +35,20 @@ class Player {
         for (let wall of walls) {
             if (!wall.isSolid()) continue;
 
+            // Get effective coordinates for open doors
+            const coords = wall.getEffectiveCoords();
+
             // Simple circle-line collision detection
-            const dx = wall.x2 - wall.x1;
-            const dy = wall.y2 - wall.y1;
+            const dx = coords.x2 - coords.x1;
+            const dy = coords.y2 - coords.y1;
             const length = Math.sqrt(dx * dx + dy * dy);
             const ux = dx / length;
             const uy = dy / length;
 
-            const t = ((playerWorldX - wall.x1) * ux + (playerWorldY - wall.y1) * uy) / length;
+            const t = ((playerWorldX - coords.x1) * ux + (playerWorldY - coords.y1) * uy) / length;
             const clampedT = Math.max(0, Math.min(1, t));
-            const closestX = wall.x1 + clampedT * dx;
-            const closestY = wall.y1 + clampedT * dy;
+            const closestX = coords.x1 + clampedT * dx;
+            const closestY = coords.y1 + clampedT * dy;
 
             const distance = Math.sqrt((playerWorldX - closestX) ** 2 + (playerWorldY - closestY) ** 2);
             if (distance < this.radius) {
@@ -101,22 +104,58 @@ class Wall {
     }
 
     draw(ctx) {
-        if (this.type === "door" && this.open) return; // Don't draw open doors
         ctx.strokeStyle = this.color;
         ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.moveTo(this.x1, this.y1);
-        ctx.lineTo(this.x2, this.y2);
-        ctx.stroke();
+        if (this.type === "door" && this.open) {
+            // Swing door 90 degrees outwards around hinge point
+            ctx.save();
+            ctx.translate(this.x1, this.y1);
+            ctx.rotate(Math.PI / 2); // 90 degrees clockwise
+            ctx.translate(-this.x1, -this.y1);
+            ctx.moveTo(this.x1, this.y1);
+            ctx.lineTo(this.x2, this.y2);
+            ctx.stroke();
+            ctx.restore();
+        } else {
+            ctx.moveTo(this.x1, this.y1);
+            ctx.lineTo(this.x2, this.y2);
+            ctx.stroke();
+        }
     }
 
     isSolid() {
         return this.type !== "door" || !this.open;
     }
 
+    getEffectiveCoords() {
+        if (this.type === "door" && this.open) {
+            // Calculate rotated coordinates for open door
+            const centerX = (this.x1 + this.x2) / 2;
+            const centerY = (this.y1 + this.y2) / 2;
+            const angle = Math.PI / 2; // 90 degrees clockwise
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+
+            const relX1 = this.x1 - centerX;
+            const relY1 = this.y1 - centerY;
+            const relX2 = this.x2 - centerX;
+            const relY2 = this.y2 - centerY;
+
+            const rotX1 = relX1 * cos - relY1 * sin + centerX;
+            const rotY1 = relX1 * sin + relY1 * cos + centerY;
+            const rotX2 = relX2 * cos - relY2 * sin + centerX;
+            const rotY2 = relX2 * sin + relY2 * cos + centerY;
+
+            return { x1: rotX1, y1: rotY1, x2: rotX2, y2: rotY2 };
+        }
+        return { x1: this.x1, y1: this.y1, x2: this.x2, y2: this.y2 };
+    }
+
     getIntersection(rayX, rayY, rayDx, rayDy, maxDistance = 800) {
-        const x1 = this.x1, y1 = this.y1;
-        const x2 = this.x2, y2 = this.y2;
+        const coords = this.getEffectiveCoords();
+        const x1 = coords.x1, y1 = coords.y1;
+        const x2 = coords.x2, y2 = coords.y2;
 
         const dx = x2 - x1;
         const dy = y2 - y1;
@@ -142,7 +181,7 @@ class Wall {
 }
 
 class Ray {
-    constructor(x, y, angle, maxLength = 20) {
+    constructor(x, y, angle, maxLength = 50) {
         this.startX = x;
         this.startY = y;
         this.angle = angle;
@@ -245,8 +284,8 @@ class Game {
         };
 
         // Player stays centered on screen
-        this.player = new Player(this.width / 2, this.height / 2, 8); // Increased radius from 3 to 8
-        this.numRays = 360;
+        this.player = new Player(this.width / 2, this.height / 2, 20); // Player radius set to 20, ray maxLength is 20
+        this.numRays = 100;
         this.rays = this.createRays(this.numRays);
         this.lightsOn = false;
         this.raysVisible = false;
@@ -258,9 +297,9 @@ class Game {
 
         // Generate ground tiles
         this.tiles = [];
-        for (let x = 0; x < 5000; x += 50) {
-            for (let y = 0; y < 5000; y += 50) {
-                this.tiles.push(new Tile(x, y));
+        for (let x = 0; x < 5000; x += 25) {
+            for (let y = 0; y < 5000; y += 25) {
+                this.tiles.push(new Tile(x, y, 25));
             }
         }
         console.log('Tiles created:', this.tiles.length);
@@ -402,7 +441,7 @@ class Game {
             // Draw player at world position
             this.ctx.fillStyle = '#ffff00';
             this.ctx.beginPath();
-            this.ctx.arc(this.camera.x + this.width / 2, this.camera.y + this.height / 2, this.player.radius, 0, Math.PI * 2);
+            this.ctx.arc(this.camera.x + this.player.x, this.camera.y + this.player.y, this.player.radius, 0, Math.PI * 2);
             this.ctx.fill();
             this.ctx.strokeStyle = '#00d4ff';
             this.ctx.lineWidth = 2;
@@ -417,15 +456,34 @@ class Game {
     drawLitScene() {
         // Only draw tiles that are directly illuminated by rays
         const illuminatedTiles = new Set();
+
+        // Always include the tile the player is standing on
+        const playerWorldX = this.camera.x + this.player.x;
+        const playerWorldY = this.camera.y + this.player.y;
+        const tileSize = 25;
+        const playerTileX = Math.floor(playerWorldX / tileSize) * tileSize;
+        const playerTileY = Math.floor(playerWorldY / tileSize) * tileSize;
+        for (let tile of this.tiles) {
+            if (tile.x === playerTileX && tile.y === playerTileY) {
+                illuminatedTiles.add(tile);
+                break;
+            }
+        }
+
         for (let ray of this.rays) {
-            // Check tiles near the ray end point
-            const tileSize = 50;
-            const tileX = Math.floor(ray.endX / tileSize) * tileSize;
-            const tileY = Math.floor(ray.endY / tileSize) * tileSize;
-            for (let tile of this.tiles) {
-                if (tile.x === tileX && tile.y === tileY) {
-                    illuminatedTiles.add(tile);
-                    break;
+            // Sample points along the ray to illuminate tiles inside
+            const steps = Math.ceil(ray.hitDistance / tileSize);
+            for (let i = 0; i <= steps; i++) {
+                const t = i / steps;
+                const sampleX = ray.startX + t * (ray.endX - ray.startX);
+                const sampleY = ray.startY + t * (ray.endY - ray.startY);
+                const tileX = Math.floor(sampleX / tileSize) * tileSize;
+                const tileY = Math.floor(sampleY / tileSize) * tileSize;
+                for (let tile of this.tiles) {
+                    if (tile.x === tileX && tile.y === tileY) {
+                        illuminatedTiles.add(tile);
+                        break;
+                    }
                 }
             }
         }
@@ -455,11 +513,11 @@ class Game {
         }
 
         // Draw player at world position
-        const playerWorldX = this.camera.x + this.width / 2;
-        const playerWorldY = this.camera.y + this.height / 2;
+        const drawPlayerWorldX = this.camera.x + this.player.x;
+        const drawPlayerWorldY = this.camera.y + this.player.y;
         this.ctx.fillStyle = '#ffff00';
         this.ctx.beginPath();
-        this.ctx.arc(playerWorldX, playerWorldY, this.player.radius, 0, Math.PI * 2);
+        this.ctx.arc(drawPlayerWorldX, drawPlayerWorldY, this.player.radius, 0, Math.PI * 2);
         this.ctx.fill();
         this.ctx.strokeStyle = '#00d4ff';
         this.ctx.lineWidth = 2;
