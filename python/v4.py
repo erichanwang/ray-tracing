@@ -87,17 +87,13 @@ class Wall:
         sx = x2 - x1
         sy = y2 - y1
 
-        denom = ray_dx * (-sy) - ray_dy * (-sx)
-        # Alternative rearranged denom to avoid sign mistakes:
-        # denom = ray_dx * (y1 - y2) + ray_dy * (x2 - x1)
+        denom = ray_dx * sy - ray_dy * sx
         if abs(denom) < 1e-10:
             return None
 
-        # Using consistent formula:
-        t = ((x1 - ray_x) * (-sy) - (y1 - ray_y) * (-sx)) / denom
+        t = ((x1 - ray_x) * sy - (y1 - ray_y) * sx) / denom
         u = ((x1 - ray_x) * ray_dy - (y1 - ray_y) * ray_dx) / denom
 
-        # t is distance along ray in units of direction vector length (ray_dx, ray_dy should be unit)
         if t > 0 and 0 <= u <= 1:
             ix = ray_x + t * ray_dx
             iy = ray_y + t * ray_dy
@@ -151,7 +147,7 @@ class Ray:
 
 # --- Player ---
 class Player:
-    def __init__(self, x, y, radius=12):
+    def __init__(self, x, y, radius=8):
         self.x = x
         self.y = y
         self.radius = radius
@@ -342,9 +338,7 @@ class Game:
             for ray in self.rays:
                 ray.draw(surf)
 
-        # draw ray hit points (optional small dots)
-        for ray in self.rays:
-            pygame.draw.circle(surf, (255, 200, 80), (int(ray.end_x), int(ray.end_y)), 2)
+
 
         # draw player
         self.player.draw(surf)
@@ -392,16 +386,24 @@ class Game:
             self.update()
 
             # draw world to screen first
-            self.screen.fill(BLACK)
-            self.draw_scene(self.screen)
+            self.screen.fill(WHITE if not self.lights_on else BLACK)
 
-            # if lights are off -> apply darkness mask that leaves only fan polygon visible
-            if not self.lights_on:
-                # Before mask, hide the ray lines themselves (we already didn't draw them when lights_on False)
-                # Draw a slightly brighter polygon edge (optional)
-                # Create a light overlay to emphasize lit region (soft)
+            if self.lights_on:
+                self.draw_scene(self.screen)
+            else:
+                # draw walls on light_overlay so only visible in lit area
                 light_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), flags=pygame.SRCALPHA)
-                # compute polygon pts again for nice light color
+                # draw walls
+                for w in self.walls:
+                    w.draw(light_overlay, width=4)
+                # draw new wall preview
+                if self.new_wall_start:
+                    mx, my = pygame.mouse.get_pos()
+                    pygame.draw.line(light_overlay, RED, self.new_wall_start, (mx, my), 2)
+                    pygame.draw.circle(light_overlay, RED, (int(self.new_wall_start[0]), int(self.new_wall_start[1])), 4)
+                # draw player on screen
+                self.player.draw(self.screen)
+                # compute polygon pts
                 pts = []
                 for r in self.rays:
                     pts.append((r.end_x, r.end_y))
@@ -409,8 +411,7 @@ class Game:
                     pygame.draw.polygon(light_overlay, (255, 220, 180, 60), pts)
                     pygame.draw.polygon(light_overlay, (255, 220, 180, 120), pts, 1)
                 self.screen.blit(light_overlay, (0, 0))
-
-                # Now dark mask cuts everything outside the polygon
+                # dark mask makes outside unseeable
                 self.draw_darkness_mask(self.screen)
 
             # draw UI on top

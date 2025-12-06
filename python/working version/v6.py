@@ -1,7 +1,7 @@
 """
-Ray Tracing V4 - Soft Cone Vision (Fixed)
+Ray Tracing V6 - Full 360 Vision
 Features:
-- Rays follow mouse
+- Rays all around the player (360 degrees)
 - Player circular collision
 - Move/add/delete walls
 - Lights toggle (L)
@@ -65,8 +65,8 @@ class Wall:
         denom = ray_dx * sy - ray_dy * sx
         if abs(denom) < 1e-10:
             return None
-        t = ((x1 - ray_x) * ray_dy - (y1 - ray_y) * ray_dx) / denom
-        u = ((x1 - ray_x) * sy - (y1 - ray_y) * sx) / denom
+        t = ((x1 - ray_x) * sy - (y1 - ray_y) * sx) / denom
+        u = ((x1 - ray_x) * ray_dy - (y1 - ray_y) * ray_dx) / denom
         if t > 0 and 0 <= u <= 1:
             ix = ray_x + t * ray_dx
             iy = ray_y + t * ray_dy
@@ -149,7 +149,7 @@ class Player:
 class Game:
     def __init__(self):
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
-        pygame.display.set_caption("Ray Tracing V4 - Soft Cone Vision Fixed")
+        pygame.display.set_caption("Ray Tracing V6 - Full 360 Vision")
         self.clock = pygame.time.Clock()
         self.font = pygame.font.Font(None, 22)
         self.player = Player(SCREEN_WIDTH//2, SCREEN_HEIGHT//2)
@@ -172,12 +172,8 @@ class Game:
         return [Ray(self.player.x,self.player.y,0) for _ in range(num_rays)]
 
     def update_rays(self):
-        mx, my = pygame.mouse.get_pos()
-        player_angle = math.atan2(my - self.player.y, mx - self.player.x)
-        FOV = math.pi / 2  # 90° cone
-        start_angle = player_angle - FOV/2
         for i, ray in enumerate(self.rays):
-            angle = start_angle + i * FOV / len(self.rays)
+            angle = (i / len(self.rays)) * 2 * math.pi
             ray.update(self.player.x, self.player.y, angle)
             ray.cast(self.walls)
 

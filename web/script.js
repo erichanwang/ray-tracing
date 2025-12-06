@@ -2,7 +2,7 @@
 // Interactive lighting system with ray casting
 
 class Player {
-    constructor(x, y, radius = 12) {
+    constructor(x, y, radius = 8) {
         this.x = x;
         this.y = y;
         this.radius = radius;
@@ -32,12 +32,13 @@ class Player {
 }
 
 class Wall {
-    constructor(x1, y1, x2, y2, color = '#00ff00') {
+    constructor(x1, y1, x2, y2, type = "normal") {
         this.x1 = x1;
         this.y1 = y1;
         this.x2 = x2;
         this.y2 = y2;
-        this.color = color;
+        this.type = type;
+        this.color = this.type === "stopping" ? "#ffff00" : "#00ff00";
     }
 
     draw(ctx) {
@@ -109,8 +110,10 @@ class Ray {
             );
 
             if (intersection && intersection.distance < closestDistance) {
-                closestDistance = intersection.distance;
-                closestPoint = { x: intersection.x, y: intersection.y };
+                if (wall.type === "stopping") {
+                    closestDistance = intersection.distance;
+                    closestPoint = { x: intersection.x, y: intersection.y };
+                }
             }
         }
 
@@ -157,18 +160,7 @@ class Game {
         this.lightsOn = true;
         this.keys = {};
 
-        this.walls = [
-            new Wall(100, 100, 500, 100),
-            new Wall(500, 100, 500, 400),
-            new Wall(500, 400, 100, 400),
-            new Wall(100, 400, 100, 100),
-            new Wall(200, 200, 400, 300),
-            new Wall(650, 150, 900, 200),
-            new Wall(900, 200, 900, 500),
-            new Wall(900, 500, 650, 550),
-            new Wall(150, 600, 350, 650),
-            new Wall(700, 600, 950, 700),
-        ];
+        this.walls = mapData.map(wall => new Wall(wall.x1, wall.y1, wall.x2, wall.y2, wall.type));
 
         this.setupEventListeners();
         this.gameLoop();
@@ -222,7 +214,7 @@ class Game {
     }
 
     draw() {
-        this.ctx.fillStyle = '#000000';
+        this.ctx.fillStyle = this.lightsOn ? '#000000' : '#ffffff';
         this.ctx.fillRect(0, 0, this.width, this.height);
 
         if (this.lightsOn) {
