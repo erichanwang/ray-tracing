@@ -209,6 +209,14 @@ class Game {
         this.raysVisible = false;
         this.keys = {};
 
+        // Camera properties
+        this.camera = {
+            x: 0,
+            y: 0,
+            zoom: 2,
+            followPlayer: true
+        };
+
         console.log('MapData:', mapData);
         this.walls = mapData.map(wall => new Wall(wall.x1, wall.y1, wall.x2, wall.y2, wall.type));
         console.log('Walls created:', this.walls.length);
@@ -233,6 +241,13 @@ class Game {
             const angle = (i / this.rays.length) * 2 * Math.PI;
             this.rays[i].update(this.player.x, this.player.y, angle);
             this.rays[i].cast(this.walls);
+        }
+    }
+
+    updateCamera() {
+        if (this.camera.followPlayer) {
+            this.camera.x = this.player.x - this.width / (2 * this.camera.zoom);
+            this.camera.y = this.player.y - this.height / (2 * this.camera.zoom);
         }
     }
 
@@ -304,6 +319,11 @@ class Game {
         this.ctx.fillStyle = '#000000';
         this.ctx.fillRect(0, 0, this.width, this.height);
 
+        // Apply camera transformation
+        this.ctx.save();
+        this.ctx.translate(-this.camera.x, -this.camera.y);
+        this.ctx.scale(this.camera.zoom, this.camera.zoom);
+
         if (this.lightsOn) {
             // Draw all walls
             for (let wall of this.walls) {
@@ -319,77 +339,31 @@ class Game {
         } else {
             this.drawLitScene();
         }
+
+        this.ctx.restore();
     }
 
     drawLitScene() {
-        // Group hit points by wall
-        const wallHits = new Map();
+        // Draw a light circle around the player
+        this.ctx.fillStyle = 'rgba(50, 50, 50, 0.3)'; // Light gray circle
+        this.ctx.beginPath();
+        this.ctx.arc(this.player.x, this.player.y, 50, 0, Math.PI * 2);
+        this.ctx.fill();
 
-        for (let ray of this.rays) {
-            if (ray.hitWall && !ray.hitWall.open) {
-                if (!wallHits.has(ray.hitWall)) {
-                    wallHits.set(ray.hitWall, []);
-                }
-                // Calculate parameter t along the wall
-                const dx = ray.hitWall.x2 - ray.hitWall.x1;
-                const dy = ray.hitWall.y2 - ray.hitWall.y1;
-                const length = Math.sqrt(dx * dx + dy * dy);
-                const ux = dx / length;
-                const uy = dy / length;
-                const t = ((ray.endX - ray.hitWall.x1) * ux + (ray.endY - ray.hitWall.y1) * uy) / length;
-                wallHits.get(ray.hitWall).push(t);
-            }
-        }
+        // Only draw walls that are very close to the player (touching)
+        for (let wall of this.walls) {
+            if (wall.type === "door" && wall.open) continue; // Skip open doors
 
-        // Draw connected segments for each wall
-        for (let [wall, ts] of wallHits) {
-            if (ts.length === 0) continue;
+            // Check if wall is close to player
+            const dx1 = wall.x1 - this.player.x;
+            const dy1 = wall.y1 - this.player.y;
+            const dx2 = wall.x2 - this.player.x;
+            const dy2 = wall.y2 - this.player.y;
+            const dist1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+            const dist2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
 
-            // Sort t values
-            ts.sort((a, b) => a - b);
-
-            // Calculate wall length once
-            const wallLength = Math.sqrt((wall.x2 - wall.x1) ** 2 + (wall.y2 - wall.y1) ** 2);
-
-            // Merge close t values (within segment length)
-            const mergedTs = [];
-            const segmentLength = 40; // pixels, increased for better connection
-            let currentGroup = [ts[0]];
-
-            for (let i = 1; i < ts.length; i++) {
-                const prevT = currentGroup[currentGroup.length - 1];
-                const currT = ts[i];
-                const pixelDistance = Math.abs(currT - prevT) * wallLength;
-
-                if (pixelDistance <= segmentLength) {
-                    currentGroup.push(currT);
-                } else {
-                    mergedTs.push(currentGroup);
-                    currentGroup = [currT];
-                }
-            }
-            mergedTs.push(currentGroup);
-
-            // Draw merged segments
-            for (let group of mergedTs) {
-                if (group.length === 0) continue;
-
-                const t1 = Math.max(0, Math.min(...group) - segmentLength / (2 * wallLength));
-                const t2 = Math.min(1, Math.max(...group) + segmentLength / (2 * wallLength));
-
-                const dx = wall.x2 - wall.x1;
-                const dy = wall.y2 - wall.y1;
-                const x1 = wall.x1 + t1 * dx;
-                const y1 = wall.y1 + t1 * dy;
-                const x2 = wall.x1 + t2 * dx;
-                const y2 = wall.y1 + t2 * dy;
-
-                this.ctx.strokeStyle = wall.color;
-                this.ctx.lineWidth = 4;
-                this.ctx.beginPath();
-                this.ctx.moveTo(x1, y1);
-                this.ctx.lineTo(x2, y2);
-                this.ctx.stroke();
+            if (dist1 < 30 || dist2 < 30) {
+                wall.draw(this.ctx);
             }
         }
 
@@ -433,6 +407,7 @@ class Game {
     update() {
         this.player.update(this.keys, this.walls, this.width, this.height);
         this.updateRays();
+        this.updateCamera();
     }
 
     gameLoop() {
