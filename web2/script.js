@@ -9,14 +9,46 @@ class Player {
         this.speed = 5;
     }
 
-    update(keys) {
-        if (keys['ArrowUp'] || keys['w'] || keys['W']) this.y -= this.speed;
-        if (keys['ArrowDown'] || keys['s'] || keys['S']) this.y += this.speed;
-        if (keys['ArrowLeft'] || keys['a'] || keys['A']) this.x -= this.speed;
-        if (keys['ArrowRight'] || keys['d'] || keys['D']) this.x += this.speed;
+    update(keys, walls, width, height) {
+        let newX = this.x;
+        let newY = this.y;
 
-        this.x = Math.max(this.radius, Math.min(game.width - this.radius, this.x));
-        this.y = Math.max(this.radius, Math.min(game.height - this.radius, this.y));
+        if (keys['ArrowUp'] || keys['w'] || keys['W']) newY -= this.speed;
+        if (keys['ArrowDown'] || keys['s'] || keys['S']) newY += this.speed;
+        if (keys['ArrowLeft'] || keys['a'] || keys['A']) newX -= this.speed;
+        if (keys['ArrowRight'] || keys['d'] || keys['D']) newX += this.speed;
+
+        // Check collision with walls
+        let canMove = true;
+        for (let wall of walls) {
+            if (!wall.isSolid()) continue;
+
+            // Simple circle-line collision detection
+            const dx = wall.x2 - wall.x1;
+            const dy = wall.y2 - wall.y1;
+            const length = Math.sqrt(dx * dx + dy * dy);
+            const ux = dx / length;
+            const uy = dy / length;
+
+            const t = ((newX - wall.x1) * ux + (newY - wall.y1) * uy) / length;
+            const clampedT = Math.max(0, Math.min(1, t));
+            const closestX = wall.x1 + clampedT * dx;
+            const closestY = wall.y1 + clampedT * dy;
+
+            const distance = Math.sqrt((newX - closestX) ** 2 + (newY - closestY) ** 2);
+            if (distance < this.radius) {
+                canMove = false;
+                break;
+            }
+        }
+
+        if (canMove) {
+            this.x = newX;
+            this.y = newY;
+        }
+
+        this.x = Math.max(this.radius, Math.min(width - this.radius, this.x));
+        this.y = Math.max(this.radius, Math.min(height - this.radius, this.y));
     }
 
     draw(ctx) {
@@ -32,22 +64,28 @@ class Player {
 }
 
 class Wall {
-    constructor(x1, y1, x2, y2, type = "normal") {
+    constructor(x1, y1, x2, y2, type = "normal", open = false) {
         this.x1 = x1;
         this.y1 = y1;
         this.x2 = x2;
         this.y2 = y2;
         this.type = type;
-        this.color = this.type === "stopping" ? "#ffff00" : "#00ff00";
+        this.open = open;
+        this.color = this.type === "stopping" ? "#ffff00" : this.type === "door" ? "#0000ff" : "#00ff00";
     }
 
     draw(ctx) {
+        if (this.type === "door" && this.open) return; // Don't draw open doors
         ctx.strokeStyle = this.color;
         ctx.lineWidth = 4;
         ctx.beginPath();
         ctx.moveTo(this.x1, this.y1);
         ctx.lineTo(this.x2, this.y2);
         ctx.stroke();
+    }
+
+    isSolid() {
+        return this.type !== "door" || !this.open;
     }
 
     getIntersection(rayX, rayY, rayDx, rayDy, maxDistance = 800) {
@@ -78,7 +116,7 @@ class Wall {
 }
 
 class Ray {
-    constructor(x, y, angle, maxLength = 800) {
+    constructor(x, y, angle, maxLength = 200) {
         this.startX = x;
         this.startY = y;
         this.angle = angle;
@@ -86,6 +124,7 @@ class Ray {
         this.endX = x + maxLength * Math.cos(angle);
         this.endY = y + maxLength * Math.sin(angle);
         this.hitDistance = maxLength;
+        this.hitWall = null;
     }
 
     update(x, y, angle) {
@@ -103,6 +142,7 @@ class Ray {
 
         let closestDistance = this.maxLength;
         let closestPoint = { x: this.endX, y: this.endY };
+        let hitWall = null;
 
         for (let wall of walls) {
             const intersection = wall.getIntersection(
@@ -116,12 +156,14 @@ class Ray {
             if (intersection && intersection.distance < closestDistance) {
                 closestDistance = intersection.distance;
                 closestPoint = { x: intersection.x, y: intersection.y };
+                hitWall = wall;
             }
         }
 
         this.hitDistance = closestDistance;
         this.endX = closestPoint.x;
         this.endY = closestPoint.y;
+        this.hitWall = hitWall;
     }
 
     draw(ctx) {
@@ -195,6 +237,9 @@ class Game {
     setupEventListeners() {
         window.addEventListener('keydown', (e) => {
             this.keys[e.key] = true;
+            if (e.key === 'e' || e.key === 'E') {
+                this.interactWithDoor();
+            }
         });
 
         window.addEventListener('keyup', (e) => {
@@ -221,23 +266,30 @@ class Game {
         });
 
         document.getElementById('increaseRadius').addEventListener('click', () => {
-            this.player.radius = Math.min(50, this.player.radius + 2);
+            for (let ray of this.rays) {
+                ray.maxLength = Math.min(800, ray.maxLength + 20);
+            }
         });
 
         document.getElementById('decreaseRadius').addEventListener('click', () => {
-            this.player.radius = Math.max(4, this.player.radius - 2);
+            for (let ray of this.rays) {
+                ray.maxLength = Math.max(50, ray.maxLength - 20);
+            }
         });
     }
 
     draw() {
-        this.ctx.fillStyle = '#ffffff';
+        // Fill with black background for unseen areas
+        this.ctx.fillStyle = '#000000';
         this.ctx.fillRect(0, 0, this.width, this.height);
 
         if (this.lightsOn) {
+            // Draw all walls
             for (let wall of this.walls) {
                 wall.draw(this.ctx);
             }
 
+            // Draw rays
             for (let ray of this.rays) {
                 ray.draw(this.ctx);
             }
@@ -249,9 +301,15 @@ class Game {
     }
 
     drawLitScene() {
-        for (let wall of this.walls) {
-            if (this.isWallIlluminated(wall)) {
-                wall.draw(this.ctx);
+        // Draw only wall segments that are hit by rays
+        for (let ray of this.rays) {
+            if (ray.hitWall && !ray.hitWall.open) {
+                this.ctx.strokeStyle = ray.hitWall.color;
+                this.ctx.lineWidth = 4;
+                this.ctx.beginPath();
+                this.ctx.moveTo(ray.hitWall.x1, ray.hitWall.y1);
+                this.ctx.lineTo(ray.hitWall.x2, ray.hitWall.y2);
+                this.ctx.stroke();
             }
         }
 
@@ -275,8 +333,23 @@ class Game {
         return false;
     }
 
+    interactWithDoor() {
+        // Check if player is near a door
+        for (let wall of this.walls) {
+            if (wall.type === "door") {
+                const dx = wall.x1 - this.player.x;
+                const dy = wall.y1 - this.player.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance < 50) { // Interaction distance
+                    wall.open = !wall.open;
+                    break;
+                }
+            }
+        }
+    }
+
     update() {
-        this.player.update(this.keys, this.width, this.height);
+        this.player.update(this.keys, this.walls, this.width, this.height);
         this.updateRays();
     }
 
