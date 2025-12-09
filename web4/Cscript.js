@@ -1,8 +1,11 @@
-// Ray Tracing - Web Version
+// Ray Tracing - Web Version (fixed + improved)
 // Interactive lighting system with ray casting
+// Changes: default ray length increased, intensity math fixed, consistent world coords,
+// createRays preserves ray length, smaller tilemap for performance, other small fixes.
 
 class Player {
     constructor(x, y, radius = 20) {
+        // x,y are screen-centered coordinates (usually canvas center)
         this.x = x;
         this.y = y;
         this.radius = radius;
@@ -14,7 +17,7 @@ class Player {
             console.error('Camera is undefined in Player.update');
             return;
         }
-        // Player stays centered - movement controls camera instead
+
         let deltaX = 0;
         let deltaY = 0;
 
@@ -23,34 +26,34 @@ class Player {
         if (keys['ArrowLeft'] || keys['a'] || keys['A']) deltaX -= this.speed;
         if (keys['ArrowRight'] || keys['d'] || keys['D']) deltaX += this.speed;
 
-        // Calculate new camera position
+        // Camera moves; player stays visually centered
         const newCameraX = camera.x + deltaX;
         const newCameraY = camera.y + deltaY;
 
-        // Check collision with walls at new position
-        let canMove = true;
+        // Check collision using the player's world position at the new camera
         const playerWorldX = newCameraX + this.x;
         const playerWorldY = newCameraY + this.y;
+
+        let canMove = true;
 
         for (let wall of walls) {
             if (!wall.isSolid()) continue;
 
-            // Get effective coordinates for open doors
             const coords = wall.getEffectiveCoords();
 
-            // Simple circle-line collision detection
+            // circle (player) - segment (wall) distance
             const dx = coords.x2 - coords.x1;
             const dy = coords.y2 - coords.y1;
-            const length = Math.sqrt(dx * dx + dy * dy);
-            const ux = dx / length;
-            const uy = dy / length;
+            const segLenSq = dx * dx + dy * dy;
+            if (segLenSq === 0) continue;
 
-            const t = ((playerWorldX - coords.x1) * ux + (playerWorldY - coords.y1) * uy) / length;
+            // projection t of point onto segment (0..1)
+            const t = ((playerWorldX - coords.x1) * dx + (playerWorldY - coords.y1) * dy) / segLenSq;
             const clampedT = Math.max(0, Math.min(1, t));
             const closestX = coords.x1 + clampedT * dx;
             const closestY = coords.y1 + clampedT * dy;
 
-            const distance = Math.sqrt((playerWorldX - closestX) ** 2 + (playerWorldY - closestY) ** 2);
+            const distance = Math.hypot(playerWorldX - closestX, playerWorldY - closestY);
             if (distance < this.radius) {
                 canMove = false;
                 break;
@@ -63,10 +66,11 @@ class Player {
         }
     }
 
-    draw(ctx) {
+    // draw expects the canvas to be in world coordinate space (i.e., after translate(-camera.x, -camera.y))
+    draw(ctx, worldX, worldY) {
         ctx.fillStyle = '#ffff00';
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.arc(worldX, worldY, this.radius, 0, Math.PI * 2);
         ctx.fill();
 
         ctx.strokeStyle = '#00d4ff';
@@ -107,21 +111,12 @@ class Wall {
         ctx.strokeStyle = this.color;
         ctx.lineWidth = 4;
         ctx.beginPath();
-        if (this.type === "door" && this.open) {
-            // Swing door 90 degrees outwards around hinge point
-            ctx.save();
-            ctx.translate(this.x1, this.y1);
-            ctx.rotate(Math.PI / 2); // 90 degrees clockwise
-            ctx.translate(-this.x1, -this.y1);
-            ctx.moveTo(this.x1, this.y1);
-            ctx.lineTo(this.x2, this.y2);
-            ctx.stroke();
-            ctx.restore();
-        } else {
-            ctx.moveTo(this.x1, this.y1);
-            ctx.lineTo(this.x2, this.y2);
-            ctx.stroke();
-        }
+
+        // If door is open, draw using computed effective coords so visuals match collision/lighting
+        const coords = this.getEffectiveCoords();
+        ctx.moveTo(coords.x1, coords.y1);
+        ctx.lineTo(coords.x2, coords.y2);
+        ctx.stroke();
     }
 
     isSolid() {
@@ -129,11 +124,11 @@ class Wall {
     }
 
     getEffectiveCoords() {
+        // If door open, rotate 90 degrees around the midpoint (keeps consistent visuals + math)
         if (this.type === "door" && this.open) {
-            // Calculate rotated coordinates for open door
             const centerX = (this.x1 + this.x2) / 2;
             const centerY = (this.y1 + this.y2) / 2;
-            const angle = Math.PI / 2; // 90 degrees clockwise
+            const angle = Math.PI / 2; // 90 degrees
             const cos = Math.cos(angle);
             const sin = Math.sin(angle);
 
@@ -149,6 +144,7 @@ class Wall {
 
             return { x1: rotX1, y1: rotY1, x2: rotX2, y2: rotY2 };
         }
+
         return { x1: this.x1, y1: this.y1, x2: this.x2, y2: this.y2 };
     }
 
@@ -161,7 +157,6 @@ class Wall {
         const dy = y2 - y1;
 
         const denom = rayDx * dy - rayDy * dx;
-
         if (Math.abs(denom) < 1e-10) return null;
 
         const t = ((x1 - rayX) * dy - (y1 - rayY) * dx) / denom;
@@ -170,7 +165,7 @@ class Wall {
         if (t > 0 && 0 <= s && s <= 1) {
             const intX = rayX + t * rayDx;
             const intY = rayY + t * rayDy;
-            const distance = Math.sqrt((intX - rayX) ** 2 + (intY - rayY) ** 2);
+            const distance = Math.hypot(intX - rayX, intY - rayY);
             if (distance <= maxDistance) {
                 return { x: intX, y: intY, distance };
             }
@@ -181,7 +176,7 @@ class Wall {
 }
 
 class Ray {
-    constructor(x, y, angle, maxLength = 100) {
+    constructor(x, y, angle, maxLength = 300) {
         this.startX = x;
         this.startY = y;
         this.angle = angle;
@@ -196,9 +191,11 @@ class Ray {
         this.startX = x;
         this.startY = y;
         this.angle = angle;
+        // keep hitDistance consistent with maxLength until cast()
         this.hitDistance = this.maxLength;
         this.endX = x + this.maxLength * Math.cos(angle);
         this.endY = y + this.maxLength * Math.sin(angle);
+        this.hitWall = null;
     }
 
     cast(walls) {
@@ -232,10 +229,16 @@ class Ray {
     }
 
     draw(ctx) {
-        const intensity = Math.floor(255 * (1 - this.hitDistance / this.maxLength));
-        const r = Math.max(255, intensity);
-        const g = Math.max(0, 200 - intensity);
+        // Intensity: 0..255 where nearer = higher intensity
+        const intensity = Math.floor(255 * (1 - (this.hitDistance / this.maxLength)));
+        // clamp
+        const clamped = Math.max(0, Math.min(255, intensity));
+
+        // Make a warm color where nearer rays are brighter
+        const r = 255; // keep red high for a warm look
+        const g = Math.max(0, 200 - clamped);
         const b = 0;
+
         ctx.strokeStyle = `rgb(${r}, ${g}, ${b})`;
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -271,35 +274,48 @@ class Game {
             console.error('Failed to get canvas context!');
             return;
         }
+
+        // Set resolution if desired (match CSS size)
         this.width = this.canvas.width;
         this.height = this.canvas.height;
         console.log('Canvas size:', this.width, this.height);
 
-        // Camera properties - now controls world movement (initialize first)
+        // Camera - controls world offset (worldX = camera.x + player.x)
         this.camera = {
-            x: 3600 - (this.width || 1200) / 2, // Center on scaled map center
+            x: 3600 - (this.width || 1200) / 2,
             y: 3600 - (this.height || 800) / 2,
-            zoom: 1, // No zoom to prevent distortion
-            followPlayer: false // Camera moves instead of following
+            zoom: 1,
+            followPlayer: false
         };
 
-        // Player stays centered on screen
-        this.player = new Player(this.width / 2, this.height / 2, 20); // Player radius set to 20, ray maxLength is 20
+        // Player is screen-centered, so set to center coordinates
+        this.player = new Player(this.width / 2, this.height / 2, 20);
+
+        // Ray settings
         this.numRays = 100;
+        this.defaultRayLength = 300; // <-- default ray length (longer by default)
         this.rays = this.createRays(this.numRays);
-        this.lightsOn = false;
-        this.raysVisible = false;
+        this.lightsOn = false;     // full lights = draw everything
+        this.raysVisible = false;  // draw lit ray lines when in dark mode
         this.keys = {};
 
-        console.log('MapData:', mapData);
-        this.walls = mapData.map(wall => new Wall(wall.x1, wall.y1, wall.x2, wall.y2, wall.type));
+        // Map/walls (external `mapData` expected)
+        console.log('MapData:', typeof mapData !== 'undefined' ? mapData : 'undefined');
+        this.walls = (typeof mapData !== 'undefined' ? mapData : []).map(
+            w => new Wall(w.x1, w.y1, w.x2, w.y2, w.type)
+        );
         console.log('Walls created:', this.walls.length);
 
-        // Generate ground tiles
+        // Tile generation - reduced map size to avoid creating millions of tiles
         this.tiles = [];
-        for (let x = 0; x < 5000; x += 25) {
-            for (let y = 0; y < 5000; y += 25) {
-                this.tiles.push(new Tile(x, y, 25));
+        // small world settings (adjust as needed)
+        const mapWidth = 2000;   // world width in px
+        const mapHeight = 2000;  // world height in px
+        const tileSize = 25;
+
+        for (let x = 0; x < mapWidth; x += tileSize) {
+            for (let y = 0; y < mapHeight; y += tileSize) {
+                this.tiles.push(new Tile(x, y, tileSize));
             }
         }
         console.log('Tiles created:', this.tiles.length);
@@ -311,17 +327,17 @@ class Game {
 
     createRays(numRays) {
         const rays = [];
-        const angleStep = (2 * Math.PI) / numRays;
+        const angleStep = (2 * Math.PI) / Math.max(1, numRays);
         for (let i = 0; i < numRays; i++) {
             const angle = i * angleStep;
-            // Rays start from player's world position (camera + screen center)
+            // start from player's world position
             const cameraX = this.camera ? this.camera.x : 0;
             const cameraY = this.camera ? this.camera.y : 0;
             const playerX = this.player ? this.player.x : this.width / 2;
             const playerY = this.player ? this.player.y : this.height / 2;
             const worldX = cameraX + playerX;
             const worldY = cameraY + playerY;
-            rays.push(new Ray(worldX, worldY, angle));
+            rays.push(new Ray(worldX, worldY, angle, this.defaultRayLength));
         }
         return rays;
     }
@@ -329,13 +345,15 @@ class Game {
     updateRays() {
         for (let i = 0; i < this.rays.length; i++) {
             const angle = (i / this.rays.length) * 2 * Math.PI;
-            // Update rays from player's world position
             const cameraX = this.camera ? this.camera.x : 0;
             const cameraY = this.camera ? this.camera.y : 0;
             const playerX = this.player ? this.player.x : this.width / 2;
             const playerY = this.player ? this.player.y : this.height / 2;
             const worldX = cameraX + playerX;
             const worldY = cameraY + playerY;
+
+            // Update ray start/angle and ensure each ray uses the current maxLength
+            this.rays[i].maxLength = this.rays[i].maxLength || this.defaultRayLength;
             this.rays[i].update(worldX, worldY, angle);
             this.rays[i].cast(this.walls);
         }
@@ -343,7 +361,7 @@ class Game {
 
     updateCamera() {
         if (this.camera.followPlayer) {
-            // Keep player centered on screen
+            // If followPlayer true, we want camera so player appears centered
             this.camera.x = this.player.x - this.width / 2;
             this.camera.y = this.player.y - this.height / 2;
         }
@@ -361,92 +379,108 @@ class Game {
             this.keys[e.key] = false;
         });
 
-        document.getElementById('toggleLights').addEventListener('click', () => {
-            this.lightsOn = !this.lightsOn;
-            const btn = document.getElementById('toggleLights');
-            btn.textContent = this.lightsOn ? 'Lights: ON' : 'Lights: OFF';
-            btn.classList.toggle('off');
-        });
+        // Buttons expected to exist in DOM
+        const toggleLightsBtn = document.getElementById('toggleLights');
+        if (toggleLightsBtn) {
+            toggleLightsBtn.addEventListener('click', () => {
+                this.lightsOn = !this.lightsOn;
+                toggleLightsBtn.textContent = this.lightsOn ? 'Lights: ON' : 'Lights: OFF';
+                toggleLightsBtn.classList.toggle('off');
+            });
+        }
 
-        document.getElementById('toggleRays').addEventListener('click', () => {
-            this.raysVisible = !this.raysVisible;
-            const btn = document.getElementById('toggleRays');
-            btn.textContent = this.raysVisible ? 'Rays: ON' : 'Rays: OFF';
-            btn.classList.toggle('off');
-        });
+        const toggleRaysBtn = document.getElementById('toggleRays');
+        if (toggleRaysBtn) {
+            toggleRaysBtn.addEventListener('click', () => {
+                this.raysVisible = !this.raysVisible;
+                toggleRaysBtn.textContent = this.raysVisible ? 'Rays: ON' : 'Rays: OFF';
+                toggleRaysBtn.classList.toggle('off');
+            });
+        }
 
-        document.getElementById('addRays').addEventListener('click', () => {
-            this.numRays = Math.min(3600, this.numRays + 30);
-            this.rays = this.createRays(this.numRays);
-            document.getElementById('rayCount').textContent = this.numRays;
-        });
+        const addRaysBtn = document.getElementById('addRays');
+        if (addRaysBtn) {
+            addRaysBtn.addEventListener('click', () => {
+                this.numRays = Math.min(3600, this.numRays + 30);
+                // recreate rays preserving the intended defaultRayLength
+                this.rays = this.createRays(this.numRays);
+                const rc = document.getElementById('rayCount');
+                if (rc) rc.textContent = this.numRays;
+            });
+        }
 
-        document.getElementById('removeRays').addEventListener('click', () => {
-            this.numRays = Math.max(1, this.numRays - 5);
-            this.rays = this.createRays(this.numRays);
-            document.getElementById('rayCount').textContent = this.numRays;
-        });
+        const removeRaysBtn = document.getElementById('removeRays');
+        if (removeRaysBtn) {
+            removeRaysBtn.addEventListener('click', () => {
+                this.numRays = Math.max(1, this.numRays - 5);
+                this.rays = this.createRays(this.numRays);
+                const rc = document.getElementById('rayCount');
+                if (rc) rc.textContent = this.numRays;
+            });
+        }
 
-        document.getElementById('increaseRadius').addEventListener('click', () => {
-            for (let ray of this.rays) {
-                ray.maxLength = Math.min(800, ray.maxLength + 20);
-            }
-        });
+        const increaseRadiusBtn = document.getElementById('increaseRadius');
+        if (increaseRadiusBtn) {
+            increaseRadiusBtn.addEventListener('click', () => {
+                for (let ray of this.rays) {
+                    ray.maxLength = Math.min(2000, (ray.maxLength || this.defaultRayLength) + 50);
+                }
+            });
+        }
 
-        document.getElementById('decreaseRadius').addEventListener('click', () => {
-            for (let ray of this.rays) {
-                ray.maxLength = Math.max(50, ray.maxLength - 20);
-            }
-        });
+        const decreaseRadiusBtn = document.getElementById('decreaseRadius');
+        if (decreaseRadiusBtn) {
+            decreaseRadiusBtn.addEventListener('click', () => {
+                for (let ray of this.rays) {
+                    ray.maxLength = Math.max(50, (ray.maxLength || this.defaultRayLength) - 50);
+                }
+            });
+        }
     }
 
     updateButtonTexts() {
         const lightsBtn = document.getElementById('toggleLights');
-        lightsBtn.textContent = this.lightsOn ? 'Lights: ON' : 'Lights: OFF';
-        lightsBtn.classList.toggle('off', !this.lightsOn);
+        if (lightsBtn) {
+            lightsBtn.textContent = this.lightsOn ? 'Lights: ON' : 'Lights: OFF';
+            lightsBtn.classList.toggle('off', !this.lightsOn);
+        }
 
         const raysBtn = document.getElementById('toggleRays');
-        raysBtn.textContent = this.raysVisible ? 'Rays: ON' : 'Rays: OFF';
-        raysBtn.classList.toggle('off', !this.raysVisible);
+        if (raysBtn) {
+            raysBtn.textContent = this.raysVisible ? 'Rays: ON' : 'Rays: OFF';
+            raysBtn.classList.toggle('off', !this.raysVisible);
+        }
 
-        document.getElementById('rayCount').textContent = this.numRays;
+        const rc = document.getElementById('rayCount');
+        if (rc) rc.textContent = this.numRays;
     }
 
     draw() {
-        // Fill with black background for unseen areas
+        // Fill screen black
         this.ctx.fillStyle = '#000000';
         this.ctx.fillRect(0, 0, this.width, this.height);
 
-        // Apply camera transformation
+        // Apply camera: shift world so camera.x/camera.y are the offsets
         this.ctx.save();
         this.ctx.translate(-this.camera.x, -this.camera.y);
         this.ctx.scale(this.camera.zoom, this.camera.zoom);
 
         if (this.lightsOn) {
-            // Draw ground tiles
-            for (let tile of this.tiles) {
-                tile.draw(this.ctx);
-            }
+            // Draw ground tiles (full light)
+            for (let tile of this.tiles) tile.draw(this.ctx);
 
             // Draw all walls
-            for (let wall of this.walls) {
-                wall.draw(this.ctx);
-            }
+            for (let wall of this.walls) wall.draw(this.ctx);
 
-            // Draw rays
-            for (let ray of this.rays) {
-                ray.draw(this.ctx);
-            }
+            // Draw rays (for debugging)
+            for (let ray of this.rays) ray.draw(this.ctx);
 
-            // Draw player at world position
-            this.ctx.fillStyle = '#ffff00';
-            this.ctx.beginPath();
-            this.ctx.arc(this.camera.x + this.player.x, this.camera.y + this.player.y, this.player.radius, 0, Math.PI * 2);
-            this.ctx.fill();
-            this.ctx.strokeStyle = '#00d4ff';
-            this.ctx.lineWidth = 2;
-            this.ctx.stroke();
+            // Draw player as world object (world coords)
+            const worldPlayerX = this.camera.x + this.player.x;
+            const worldPlayerY = this.camera.y + this.player.y;
+            this.player.draw(this.ctx, worldPlayerX, worldPlayerY);
         } else {
+            // Dark environment: draw lit scene only
             this.drawLitScene();
         }
 
@@ -454,15 +488,16 @@ class Game {
     }
 
     drawLitScene() {
-        // Only draw tiles that are directly illuminated by rays
+        // Find illuminated tiles by sampling along each ray
         const illuminatedTiles = new Set();
+        const tileSize = 25;
 
-        // Always include the tile the player is standing on
         const playerWorldX = this.camera.x + this.player.x;
         const playerWorldY = this.camera.y + this.player.y;
-        const tileSize = 25;
         const playerTileX = Math.floor(playerWorldX / tileSize) * tileSize;
         const playerTileY = Math.floor(playerWorldY / tileSize) * tileSize;
+
+        // add player's tile
         for (let tile of this.tiles) {
             if (tile.x === playerTileX && tile.y === playerTileY) {
                 illuminatedTiles.add(tile);
@@ -471,14 +506,16 @@ class Game {
         }
 
         for (let ray of this.rays) {
-            // Sample points along the ray to illuminate tiles inside
-            const steps = Math.ceil(ray.hitDistance / tileSize);
+            // Steps along the ray - sample positions between start and end
+            const steps = Math.max(1, Math.ceil(ray.hitDistance / tileSize));
             for (let i = 0; i <= steps; i++) {
                 const t = i / steps;
                 const sampleX = ray.startX + t * (ray.endX - ray.startX);
                 const sampleY = ray.startY + t * (ray.endY - ray.startY);
                 const tileX = Math.floor(sampleX / tileSize) * tileSize;
                 const tileY = Math.floor(sampleY / tileSize) * tileSize;
+
+                // fast lookup: iterate tiles (ok for modest tile count)
                 for (let tile of this.tiles) {
                     if (tile.x === tileX && tile.y === tileY) {
                         illuminatedTiles.add(tile);
@@ -489,65 +526,50 @@ class Game {
         }
 
         // Draw illuminated tiles
-        for (let tile of illuminatedTiles) {
-            tile.draw(this.ctx);
-        }
+        for (let tile of illuminatedTiles) tile.draw(this.ctx);
 
-        // Only draw walls that are directly illuminated by rays (player cannot see behind walls)
+        // Determine illuminated walls (rays that hit walls)
         const illuminatedWalls = new Set();
         for (let ray of this.rays) {
-            if (ray.hitWall) {
-                illuminatedWalls.add(ray.hitWall);
-            }
+            if (ray.hitWall) illuminatedWalls.add(ray.hitWall);
         }
 
-        // Draw only illuminated walls - no full wall visibility for partial illumination
-        for (let wall of illuminatedWalls) {
-            wall.draw(this.ctx);
-        }
+        // Draw only illuminated walls (using getEffectiveCoords ensures correct visuals)
+        for (let wall of illuminatedWalls) wall.draw(this.ctx);
 
+        // Optionally draw rays overlay for debugging or "visible rays" option
         if (this.raysVisible) {
-            for (let ray of this.rays) {
-                ray.drawLit(this.ctx);
-            }
+            for (let ray of this.rays) ray.drawLit(this.ctx);
         }
 
-        // Draw player at world position
+        // Draw player at world coordinates
         const drawPlayerWorldX = this.camera.x + this.player.x;
         const drawPlayerWorldY = this.camera.y + this.player.y;
-        this.ctx.fillStyle = '#ffff00';
-        this.ctx.beginPath();
-        this.ctx.arc(drawPlayerWorldX, drawPlayerWorldY, this.player.radius, 0, Math.PI * 2);
-        this.ctx.fill();
-        this.ctx.strokeStyle = '#00d4ff';
-        this.ctx.lineWidth = 2;
-        this.ctx.stroke();
+        this.player.draw(this.ctx, drawPlayerWorldX, drawPlayerWorldY);
     }
 
     isWallIlluminated(wall) {
+        // Use effective coords for doors and closed/open state
+        const coords = wall.getEffectiveCoords();
         for (let ray of this.rays) {
-            const dx = ray.endX - ray.startX;
-            const dy = ray.endY - ray.startY;
-            
-            const d1 = Math.sqrt((wall.x1 - ray.endX) ** 2 + (wall.y1 - ray.endY) ** 2);
-            const d2 = Math.sqrt((wall.x2 - ray.endX) ** 2 + (wall.y2 - ray.endY) ** 2);
-            
+            const d1 = Math.hypot(coords.x1 - ray.endX, coords.y1 - ray.endY);
+            const d2 = Math.hypot(coords.x2 - ray.endX, coords.y2 - ray.endY);
             if (d1 < 30 || d2 < 30) return true;
         }
         return false;
     }
 
     interactWithDoor() {
-        // Check if player is near a door (using world coordinates)
         const playerWorldX = this.camera.x + this.player.x;
         const playerWorldY = this.camera.y + this.player.y;
 
         for (let wall of this.walls) {
             if (wall.type === "door") {
+                // Use hinge (x1,y1) as interaction point for door toggling
                 const dx = wall.x1 - playerWorldX;
                 const dy = wall.y1 - playerWorldY;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                if (distance < 50) { // Interaction distance
+                const distance = Math.hypot(dx, dy);
+                if (distance < 50) {
                     wall.open = !wall.open;
                     break;
                 }
@@ -568,6 +590,7 @@ class Game {
     }
 }
 
+// Create the game on DOM ready (expects elements: gameCanvas and control buttons)
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM loaded, creating game');
     window.gameInstance = new Game('gameCanvas');
