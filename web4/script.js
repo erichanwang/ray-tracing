@@ -297,8 +297,8 @@ class Game {
 
         // Generate ground tiles
         this.tiles = [];
-        for (let x = 0; x < 5000; x += 25) {
-            for (let y = 0; y < 5000; y += 25) {
+        for (let x = -1000; x < 5000; x += 25) {
+            for (let y = -1000; y < 5000; y += 25) {
                 this.tiles.push(new Tile(x, y, 25));
             }
         }
