@@ -18,6 +18,9 @@ const DOOR_SLIDE_DURATION = 0.8
 const SPIKES_DAMAGE_RATE = 15
 const SPIKE_HURT_COOLDOWN = 0.5
 const WALL_BUMP_COOLDOWN = 0.3
+const GRAVITY = 15
+const JUMP_VELOCITY = 6
+const PLAYER_EYE_HEIGHT = 1.6
 
 // Grid value constants — see levels.js grid legend
 const WALL = 1
@@ -738,12 +741,15 @@ function PlayerShadow({ gameState }) {
   )
 }
 
-function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, paused }) {
+function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, paused, mobileJump }) {
   const { camera } = useThree()
   const keys = useRef({})
   const footstepTimer = useRef(0)
   const wallBumpTimer = useRef(0)
   const bobPhase = useRef(0)
+  const verticalVel = useRef(0)
+  const jumpPressed = useRef(false)
+  const prevMobileJump = useRef(false)
 
   const spawnPos = useMemo(() => {
     const rows = grid.length
@@ -753,11 +759,11 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
     for (let z = 0; z < rows; z++) {
       for (let x = 0; x < cols; x++) {
         if (grid[z][x] === SPAWN) {
-          return [x * CELL_SIZE - offsetX + CELL_SIZE / 2, 1.6, z * CELL_SIZE - offsetZ + CELL_SIZE / 2]
+          return [x * CELL_SIZE - offsetX + CELL_SIZE / 2, PLAYER_EYE_HEIGHT, z * CELL_SIZE - offsetZ + CELL_SIZE / 2]
         }
       }
     }
-    return [0, 1.6, 0]
+    return [0, PLAYER_EYE_HEIGHT, 0]
   }, [grid])
 
   const checkCollision = useCallback((x, z) => {
@@ -810,6 +816,7 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
   useFrame((_, delta) => {
     if (paused) return
     const k = keys.current
+    const dt = Math.min(delta, 0.1)
     const forward = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
     forward.y = 0
     forward.normalize()
@@ -832,7 +839,6 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
     const len = Math.sqrt(mx * mx + mz * mz)
     if (len > 1) { mx /= len; mz /= len }
 
-    const dt = Math.min(delta, 0.1)
     const spd = PLAYER_SPEED * dt
 
     const nx = camera.position.x + mx * spd
@@ -854,10 +860,49 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
       wallBumpTimer.current = 0
     }
 
-    // Calculate floor height at current position for stair/platform support
+    // ---- Jump / gravity ----
     const floorH = getFloorHeightAt(camera.position.x, camera.position.z, grid)
-    const targetY = floorH + 1.6 // eye height above floor
-    camera.position.y += (targetY - camera.position.y) * Math.min(1, delta * 12) // smooth lerp
+    const footY = camera.position.y - PLAYER_EYE_HEIGHT
+    const isGrounded = footY <= floorH + 0.05 && verticalVel.current <= 0
+
+    if (isGrounded) {
+      // Snap to floor
+      camera.position.y = floorH + PLAYER_EYE_HEIGHT
+      verticalVel.current = 0
+    }
+
+    // Jump: Space key (desktop) or mobileJump edge-detect (mobile)
+    const spaceJump = k['Space']
+    let mobileJumpEdge = false
+    if (mobileJump !== undefined) {
+      if (mobileJump && !prevMobileJump.current) mobileJumpEdge = true
+      prevMobileJump.current = mobileJump
+    }
+
+    if ((spaceJump || mobileJumpEdge) && isGrounded && !jumpPressed.current) {
+      verticalVel.current = JUMP_VELOCITY
+      jumpPressed.current = true
+    }
+    if (!spaceJump && !mobileJumpEdge) {
+      jumpPressed.current = false
+    }
+
+    // Apply gravity
+    verticalVel.current -= GRAVITY * dt
+    camera.position.y += verticalVel.current * dt
+
+    // Clamp to floor (don't fall through)
+    const newFootY = camera.position.y - PLAYER_EYE_HEIGHT
+    if (newFootY < floorH && verticalVel.current < 0) {
+      camera.position.y = floorH + PLAYER_EYE_HEIGHT
+      verticalVel.current = 0
+    }
+
+    // Ceiling clamp
+    if (camera.position.y > WALL_HEIGHT - 0.2) {
+      camera.position.y = WALL_HEIGHT - 0.2
+      if (verticalVel.current > 0) verticalVel.current = 0
+    }
 
     gameState.playerPos = [camera.position.x, camera.position.y, camera.position.z]
     gameState.isMoving = len > 0.05
@@ -885,8 +930,8 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
       footstepTimer.current = 0
     }
 
-    // Subtle camera bob when moving
-    if (gameState.isMoving) {
+    // Subtle camera bob when moving (only when grounded)
+    if (gameState.isMoving && isGrounded) {
       bobPhase.current += delta * 10
       const bobAmount = 0.025 * Math.sin(bobPhase.current)
       camera.position.y += bobAmount
@@ -1027,9 +1072,10 @@ function GameLogic({
   }, [doorData, doorsOpenedCount])
 
   const allDoorsOpen = doorsOpenedSet.current.size >= doorData.length
-  const activated = collectedCount >= crystalsNeeded && allDoorsOpen
-
-
+  // Use ref so exit check in useFrame sees latest value immediately after crystal collection
+  const activatedRef = useRef(false)
+  activatedRef.current = collectedCount >= crystalsNeeded && allDoorsOpen
+  const activated = activatedRef.current
 
   // Update minimap data
   const minimapTimer = useRef(0)
@@ -1136,8 +1182,8 @@ function GameLogic({
       }
     })
 
-    // Exit portal check
-    if (activated && !exitTriggered.current) {
+    // Exit portal check — use ref to avoid stale closure after same-frame crystal/key pickup
+    if (activatedRef.current && !exitTriggered.current) {
       const ex = pp[0] - exitPos[0]
       const ez = pp[2] - exitPos[2]
       if (Math.sqrt(ex * ex + ez * ez) < 2) {
@@ -1178,6 +1224,7 @@ function SceneContent({
   onKeyCollected,
   onDoorOpened,
   paused,
+  mobileJump,
 }) {
   const gameState = useRef({ playerPos: null, isMoving: false, playerOnFloor: 0 })
   const doorsOpenedRef = useRef(new Set())
@@ -1195,7 +1242,7 @@ function SceneContent({
       <WallTorches grid={level.grid} />
       <DustParticles grid={level.grid} />
       <PlayerShadow gameState={gameState} />
-      <Player grid={level.grid} gameState={gameState} mobileMove={mobileMove} mobileLookRef={mobileLookRef} doorsOpenedRef={doorsOpenedRef} paused={paused} />
+      <Player grid={level.grid} gameState={gameState} mobileMove={mobileMove} mobileLookRef={mobileLookRef} doorsOpenedRef={doorsOpenedRef} paused={paused} mobileJump={mobileJump} />
       <GameLogic
         grid={level.grid}
         crystalsNeeded={level.crystalsNeeded}
@@ -1231,6 +1278,7 @@ export default function Game3D({
   paused,
   onPointerLock,
   onPointerUnlock,
+  mobileJump,
 }) {
   const [ready, setReady] = useState(false)
   const [showClickHint, setShowClickHint] = useState(false)
@@ -1310,6 +1358,7 @@ export default function Game3D({
           onKeyCollected={onKeyCollected}
           onDoorOpened={onDoorOpened}
           paused={paused || !ready}
+          mobileJump={mobileJump}
         />
         {!isMobile && <PointerLockControls onLock={handleLock} onUnlock={handleUnlock} />}
       </Canvas>
@@ -1330,6 +1379,7 @@ export default function Game3D({
             </button>
             <div className="text-amber-500/30 text-xs space-y-1">
               <p><span className="text-amber-500/50 font-semibold">W A S D</span> or <span className="text-amber-500/50 font-semibold">Arrow Keys</span> to move</p>
+              <p><span className="text-amber-500/50 font-semibold">Space</span> to jump</p>
               <p><span className="text-amber-500/50 font-semibold">Mouse</span> to look around</p>
               <p><span className="text-amber-500/50 font-semibold">Escape</span> to pause</p>
               <p className="mt-2 text-amber-500/20">Collect crystals, find keys, open doors, reach the portal</p>
@@ -1352,6 +1402,7 @@ export default function Game3D({
             </button>
             <div className="text-amber-500/30 text-xs space-y-1">
               <p><span className="text-amber-500/50 font-semibold">Left Joystick</span> to move</p>
+              <p><span className="text-amber-500/50 font-semibold">Center Button</span> to jump</p>
               <p><span className="text-amber-500/50 font-semibold">Right Area</span> to look around</p>
               <p className="mt-2 text-amber-500/20">Collect crystals, find keys, open doors, reach the portal</p>
             </div>

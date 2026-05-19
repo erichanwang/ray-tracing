@@ -26,6 +26,7 @@ export default function App() {
   const [unlockedLevel, setUnlockedLevel] = useState(0)
   const [hasStartedGame, setHasStartedGame] = useState(false)
   const [mobileMove, setMobileMove] = useState([0, 0])
+  const [mobileJump, setMobileJump] = useState(false)
   const mobileLookRef = useRef([0, 0])
   const [minimapData, setMinimapData] = useState({ playerPos: null, crystals: [], exitPos: null })
   const [keysHeld, setKeysHeld] = useState(0)
@@ -155,6 +156,7 @@ export default function App() {
   const handlePointerLock = useCallback(() => setPaused(false), [])
   const handlePointerUnlock = useCallback(() => setPaused(true), [])
   const handleMobileMove = useCallback((mx, my) => setMobileMove([mx, -my]), [])
+  const handleMobileJump = useCallback((v) => setMobileJump(v), [])
 
   const goToLevelSelect = useCallback(() => {
     setScreen('levelSelect')
@@ -226,6 +228,7 @@ export default function App() {
             paused={paused}
             onPointerLock={handlePointerLock}
             onPointerUnlock={handlePointerUnlock}
+            mobileJump={mobileJump}
           />
           <HUD
             crystals={crystals}
@@ -255,6 +258,7 @@ export default function App() {
             <MobileControls
               onMove={handleMobileMove}
               onLookDelta={onMobileLook}
+              onJump={handleMobileJump}
             />
           )}
           {paused && (
