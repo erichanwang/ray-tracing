@@ -74,6 +74,11 @@ function MazeWalls({ grid }) {
   )
 }
 
+// ---- Module-level reusable objects (avoid per-frame GC) ----
+const _forward = new Vector3()
+const _right = new Vector3()
+const _euler = new Euler(0, 0, 0, 'YXZ')
+
 // ---- Wall torches (sconces with flickering flame) ----
 function WallTorches({ grid }) {
   const torches = useMemo(() => {
@@ -127,8 +132,9 @@ function TorchFlame({ pos, dir }) {
 
   useFrame((_, delta) => {
     const t = Date.now() * 0.005
-    // Flicker intensity
-    const flicker = 0.7 + Math.sin(t * 13.7 + pos[0] * 7.3) * 0.15 + Math.sin(t * 19.3 + pos[2] * 11.1) * 0.1 + Math.random() * 0.05
+    // Deterministic pseudo-random flicker (no Math.random() — avoids per-frame mutex)
+    const noise = (Math.sin(t * 47.1 + pos[0] * 23.7 + pos[2] * 31.3) * 0.5 + 0.5) * 0.05
+    const flicker = 0.7 + Math.sin(t * 13.7 + pos[0] * 7.3) * 0.15 + Math.sin(t * 19.3 + pos[2] * 11.1) * 0.1 + noise
     if (lightRef.current) {
       lightRef.current.intensity = flicker * 2.5
     }
@@ -790,7 +796,6 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
   const velocityX = useRef(0)               // smoothed horizontal velocity X
   const velocityZ = useRef(0)               // smoothed horizontal velocity Z
 
-  const lastAppliedRoll = useRef(0)         // undo previous frame's strafe roll
   const mobileSprintingRef = useRef(false)  // hysteresis for mobile auto-sprint
   const wallRunTilt = useRef(0)             // camera tilt toward wall during wall-run
   const isSliding = useRef(false)           // crouch-slide active
@@ -863,12 +868,12 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
     if (paused) return
     const k = keys.current
     const dt = Math.min(delta, 0.1)
-    const forward = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
-    forward.y = 0
-    forward.normalize()
-    const right = new Vector3(1, 0, 0).applyQuaternion(camera.quaternion)
-    right.y = 0
-    right.normalize()
+    _forward.set(0, 0, -1).applyQuaternion(camera.quaternion)
+    _forward.y = 0
+    _forward.normalize()
+    _right.set(1, 0, 0).applyQuaternion(camera.quaternion)
+    _right.y = 0
+    _right.normalize()
 
     // ---- Ground state ----
     const floorH = getFloorHeightAt(camera.position.x, camera.position.z, grid)
@@ -891,10 +896,10 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
 
     // ---- Input direction ----
     let mx = 0, mz = 0
-    if (k['KeyW'] || k['ArrowUp']) { mx += forward.x; mz += forward.z }
-    if (k['KeyS'] || k['ArrowDown']) { mx -= forward.x; mz -= forward.z }
-    if (k['KeyA'] || k['ArrowLeft']) { mx -= right.x; mz -= right.z }
-    if (k['KeyD'] || k['ArrowRight']) { mx += right.x; mz += right.z }
+    if (k['KeyW'] || k['ArrowUp']) { mx += _forward.x; mz += _forward.z }
+    if (k['KeyS'] || k['ArrowDown']) { mx -= _forward.x; mz -= _forward.z }
+    if (k['KeyA'] || k['ArrowLeft']) { mx -= _right.x; mz -= _right.z }
+    if (k['KeyD'] || k['ArrowRight']) { mx += _right.x; mz += _right.z }
 
     // Mobile input — auto-sprint with hysteresis (activate >0.85, deactivate <0.7)
     let mobileEdge = false
@@ -903,8 +908,8 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
       if (mobileMag > 0.85) mobileSprintingRef.current = true
       else if (mobileMag < 0.7) mobileSprintingRef.current = false
       mobileEdge = mobileSprintingRef.current
-      mx += mobileMove[1] * forward.x + mobileMove[0] * right.x
-      mz += mobileMove[1] * forward.z + mobileMove[0] * right.z
+      mx += mobileMove[1] * _forward.x + mobileMove[0] * _right.x
+      mz += mobileMove[1] * _forward.z + mobileMove[0] * _right.z
     }
 
     const inputLen = Math.sqrt(mx * mx + mz * mz)
@@ -1084,36 +1089,20 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
 
     // Mobile look — apply touch deltas to camera rotation (BEFORE strafe roll)
     if (mobileLookRef && (mobileLookRef.current[0] !== 0 || mobileLookRef.current[1] !== 0)) {
-      const euler = new Euler(0, 0, 0, 'YXZ')
-      euler.setFromQuaternion(camera.quaternion)
-      euler.y -= mobileLookRef.current[0] * 0.003
-      euler.x -= mobileLookRef.current[1] * 0.003
-      euler.x = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, euler.x))
-      camera.quaternion.setFromEuler(euler)
+      _euler.setFromQuaternion(camera.quaternion)
+      _euler.y -= mobileLookRef.current[0] * 0.003
+      _euler.x -= mobileLookRef.current[1] * 0.003
+      _euler.x = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, _euler.x))
+      camera.quaternion.setFromEuler(_euler)
       mobileLookRef.current = [0, 0]
     }
 
-    // ---- Camera tilt on strafe (roll) — applied AFTER mobile look ----
-    // Compute lateral (rightward) velocity component for strafe tilt
-    const lateralComponent = velocityX.current * right.x + velocityZ.current * right.z
+    // ---- Camera tilt on strafe (roll) — directly set camera.rotation.z ----
+    const lateralComponent = velocityX.current * _right.x + velocityZ.current * _right.z
     const tiltRatio = Math.max(-1, Math.min(1, lateralComponent / Math.max(targetSpeed, 0.1)))
-    const targetTilt = tiltRatio * 0.04 + wallRunTilt.current * (tiltRatio > 0 ? 1 : -1)  // wall-run adds extra tilt
+    const targetTilt = tiltRatio * 0.04 + wallRunTilt.current * (tiltRatio > 0 ? 1 : -1)
     strafeTilt.current += (targetTilt - strafeTilt.current) * Math.min(9 * dt, 1)
-
-    // Reverse previous frame's roll to prevent accumulation
-    if (Math.abs(lastAppliedRoll.current) > 0.0001) {
-      const unrollQ = new Euler(0, 0, -lastAppliedRoll.current, 'YXZ').toQuaternion()
-      camera.quaternion.multiply(unrollQ)
-      lastAppliedRoll.current = 0
-    }
-
-    // Apply fresh strafe tilt
-    const currentRoll = strafeTilt.current
-    if (Math.abs(currentRoll) > 0.0001) {
-      const rollQ = new Euler(0, 0, currentRoll, 'YXZ').toQuaternion()
-      camera.quaternion.multiply(rollQ)
-      lastAppliedRoll.current = currentRoll
-    }
+    camera.rotation.z = strafeTilt.current
 
     // ---- Footstep sounds (faster when sprinting or sliding) ----
     const actualSpeed = Math.sqrt(velocityX.current ** 2 + velocityZ.current ** 2)
@@ -1138,8 +1127,10 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
 
     // ---- Slide FOV effect (widen from 90 to 100 during crouch-slide) ----
     const targetFov = isSliding.current ? 100 : 90
-    camera.fov += (targetFov - camera.fov) * Math.min(8 * dt, 1)
-    camera.updateProjectionMatrix()
+    if (Math.abs(targetFov - camera.fov) > 0.01) {
+      camera.fov += (targetFov - camera.fov) * Math.min(8 * dt, 1)
+      camera.updateProjectionMatrix()
+    }
 
   })
 
