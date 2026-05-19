@@ -1,90 +1,95 @@
-# Ray Tracing - Interactive Lighting System
+# Lanternlight — Ray-Traced 3D Dungeon Crawler
 
-A complete ray tracing implementation featuring interactive lighting with support for both Python (Pygame) and Web (HTML/CSS/JavaScript) versions.
+A first-person 3D dungeon crawler built with **React**, **Three.js**, and **Tailwind CSS**. Navigate dark maze chambers with your lantern, collect emerald crystals, and escape through golden portals.
 
-## Features
+## 🎮 Play
 
-- **Interactive Player**: Move around using WASD or Arrow keys as a circle character
-- **Ray Casting**: 10 rays (customizable) emit from the player
-- **Wall Collision**: Rays detect and stop at wall intersections
-- **Lights Toggle**: Switch between full world view and light-based vision
-- **Ray Count Control**: Increase or decrease the number of rays dynamically
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new)
 
-## Project Structure
+Or run locally:
+
+```bash
+cd app
+npm install
+npm run dev
+```
+
+## ✨ Features
+
+- **First-person 3D** — Explore maze chambers in full 3D with mouse-look controls
+- **Ray-traced flashlight** — Dynamic spotlight follows your camera, creating realistic lighting
+- **5 levels** — Increasingly complex mazes with more crystals to find
+- **Lanternlight character** — You are the Lantern Bearer, wielding light in the darkness
+- **Collect & escape** — Gather emerald crystals to unlock the golden exit portal
+- **Amber/Emerald palette** — Warm torchlight tones against deep dungeon darkness
+- **Vercel-ready** — Optimized for one-click deployment
+
+## 🎯 How to Play
+
+| Key | Action |
+|-----|--------|
+| W/A/S/D or Arrow Keys | Move |
+| Mouse | Look around |
+| Click | Lock pointer (required to play) |
+| Escape | Release pointer / pause |
+
+1. **Find crystals** — Emerald green dodecahedrons scattered through the maze
+2. **Collect them all** — Walk near a crystal to pick it up (HUD tracks progress)
+3. **Find the exit** — Once all crystals are collected, the golden portal activates
+4. **Escape** — Walk into the glowing portal to complete the level
+
+## 🏗 Project Structure
 
 ```
 ray-tracing/
-├── python/
-│   ├── v1_basic_rays.py              # Basic ray implementation
-│   ├── v2_collision_detection.py     # Ray-wall collision detection
-│   └── v3_advanced_features.py       # Advanced features with ray count control
-└── web/
-    ├── index.html                     # Main HTML file
-    ├── styles.css                     # Styling and layout
-    └── script.js                      # Game logic and rendering
+├── app/                              # React + Three.js game (deployable)
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── Game3D.jsx            # Three.js 3D game engine
+│   │   │   ├── HUD.jsx               # In-game HUD overlay
+│   │   │   ├── MainMenu.jsx          # Start screen
+│   │   │   ├── LevelComplete.jsx     # Level transition
+│   │   │   └── Victory.jsx           # Victory screen
+│   │   ├── game/
+│   │   │   └── levels.js             # 5 maze level definitions
+│   │   ├── App.jsx                   # Game state machine
+│   │   ├── main.jsx                  # Entry point
+│   │   └── index.css                 # Tailwind + custom theme
+│   ├── index.html
+│   ├── vite.config.js
+│   └── package.json
+├── python/                           # Original Pygame prototypes
+│   ├── v1_basic_rays.py
+│   ├── v2_collision_detection.py
+│   ├── v3_advanced_features.py
+│   ├── v4.py
+│   └── v5.py
+└── web/                              # Original vanilla JS version
+    ├── index.html
+    ├── styles.css
+    └── script.js
 ```
 
-## Python Versions
+## 🚀 Deploy to Vercel
 
-### Prerequisites
-```bash
-pip install pygame
-```
+1. Push this repo to GitHub
+2. Go to [vercel.com](https://vercel.com) → New Project
+3. Import your repo
+4. Set **Root Directory** to `app`
+5. Framework will be auto-detected as Vite
+6. Deploy!
 
-### v1 - Basic Rays
-Simple implementation with rays emanating from the player without collision detection.
-```bash
-python python/v1_basic_rays.py
-```
+The build command `npm run build` and output directory `dist` are already configured.
 
-### v2 - Collision Detection
-Implements ray-wall collision detection where rays stop when hitting walls.
-```bash
-python python/v2_collision_detection.py
-```
+## 🛠 Tech Stack
 
-### v3 - Advanced Features
-Full implementation with adjustable ray count (+/- keys), improved visuals, and distance-based coloring.
-```bash
-python python/v3_advanced_features.py
-```
+- [React 19](https://react.dev/) — UI framework
+- [Three.js](https://threejs.org/) — 3D rendering
+- [@react-three/fiber](https://docs.pmnd.rs/react-three-fiber) — React renderer for Three.js
+- [@react-three/drei](https://github.com/pmndrs/drei) — Three.js helpers (PointerLockControls)
+- [Tailwind CSS v4](https://tailwindcss.com/) — Utility-first styling
+- [Vite](https://vitejs.dev/) — Build tool
 
-## Web Version
-
-Open `web/index.html` in your browser to play the web version.
-
-### Controls
-- **Arrow Keys / WASD**: Move the player
-- **+ Button**: Increase ray count
-- **- Button**: Decrease ray count
-- **Lights Toggle**: Switch between full view and darkness mode
-
-### Features
-- Real-time ray casting
-- Dynamic wall illumination
-- Responsive canvas rendering
-- Touch-friendly controls
-
-## Gameplay
-
-1. **Lights ON Mode**: You can see the entire environment with all rays displayed
-2. **Lights OFF Mode**: Only walls illuminated by rays are visible, creating a flashlight effect
-3. Adjust ray count to customize the vision cone size
-4. Explore the environment and discover the interactive lighting effects
-
-## Technical Details
-
-### Ray-Wall Intersection
-The game uses line-line intersection algorithm to detect where rays hit walls:
-- Parametric line equations for both rays and walls
-- Closest intersection detection for proper wall occlusion
-- Distance-based ray coloring for visual feedback
-
-### Performance
-- Optimized ray casting with early termination
-- Efficient wall illumination detection
-- Smooth 60 FPS rendering in both implementations
-
-## License
+## 📜 License
 
 MIT
