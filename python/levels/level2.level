@@ -1,0 +1,16 @@
+name: Deepening Shadows
+description: The maze grows. Find keys to unlock your path. Watch your step.
+crystalsNeeded: 3
+grid:
+ 1  1  1  1  1  1  1  1  1  1  1  1
+ 1  4  0  0  1  0  2  0  0  0  0  1
+ 1  1  1  0  1  0  1  1  1  1  0  1
+ 1  0  0  0  0  0  1  5  9  0  0  1
+ 1  0  1  1  1  1  1  0  1  1  0  1
+ 1  0  1  2  0  0  0  0  1  0  0  1
+ 1  0  1  1  1  0  1  1  1  0  1  1
+ 1  0  0  0  0  0  1  0  0  0  0  1
+ 1  0  1  1  0  1  1  0  1  1  0  1
+ 1  0  0  1  0  0  0  0  6  2  0  1
+ 1  1  0  0  0  1  1  0  0  0  3  1
+ 1  1  1  1  1  1  1  1  1  1  1  1

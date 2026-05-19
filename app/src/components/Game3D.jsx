@@ -1,7 +1,7 @@
 import { useRef, useMemo, useState, useCallback, useEffect } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { PointerLockControls, useTexture } from '@react-three/drei'
-import { Vector3, Euler, DoubleSide, RepeatWrapping, BufferGeometry, BufferAttribute, AdditiveBlending } from 'three'
+import { Vector3, Euler, DoubleSide, RepeatWrapping, BufferGeometry, BufferAttribute, AdditiveBlending, CanvasTexture } from 'three'
 import { playFootstep, playCrystalCollect, playPortalActivate, playDeath, playKeyCollect, playDoorOpen, playSpikeHurt, playWallBump } from '../game/sound'
 
 const CELL_SIZE = 4
@@ -173,6 +173,31 @@ function TorchFlame({ pos, dir }) {
   )
 }
 
+// ---- Canvas-generated circular sprite texture for dust particles ----
+function createDustSprite() {
+  const size = 64
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')
+  const gradient = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2)
+  gradient.addColorStop(0, 'rgba(255,232,192,1)')
+  gradient.addColorStop(0.15, 'rgba(255,232,192,0.85)')
+  gradient.addColorStop(0.4, 'rgba(255,220,160,0.4)')
+  gradient.addColorStop(0.7, 'rgba(255,200,120,0.05)')
+  gradient.addColorStop(1, 'rgba(255,180,100,0)')
+  ctx.fillStyle = gradient
+  ctx.fillRect(0, 0, size, size)
+  return canvas
+}
+
+// Shared sprite canvas (created once)
+let dustSpriteCanvas = null
+function getDustSprite() {
+  if (!dustSpriteCanvas) dustSpriteCanvas = createDustSprite()
+  return dustSpriteCanvas
+}
+
 // ---- Atmospheric dust particles ----
 function DustParticles({ grid }) {
   const rows = grid.length
@@ -195,12 +220,20 @@ function DustParticles({ grid }) {
         pos[i * 3] = wx
         pos[i * 3 + 1] = Math.random() * WALL_HEIGHT
         pos[i * 3 + 2] = wz
-        sz[i] = Math.random() * 0.04 + 0.01
+        sz[i] = Math.random() * 0.06 + 0.015
         i++
       }
     }
     return [pos, sz]
   }, [grid])
+
+  // Canvas-generated circular sprite texture
+  const spriteTexture = useMemo(() => {
+    const canvas = getDustSprite()
+    const tex = new CanvasTexture(canvas)
+    tex.needsUpdate = true
+    return tex
+  }, [])
 
   const pointsRef = useRef()
   useFrame((_, delta) => {
@@ -220,8 +253,9 @@ function DustParticles({ grid }) {
         <bufferAttribute attach="attributes-position" count={positions.length / 3} array={positions} itemSize={3} />
       </bufferGeometry>
       <pointsMaterial
+        map={spriteTexture}
         color="#ffe8c0"
-        size={0.04}
+        size={0.08}
         transparent
         opacity={0.35}
         blending={AdditiveBlending}
@@ -748,8 +782,16 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
   const wallBumpTimer = useRef(0)
   const bobPhase = useRef(0)
   const verticalVel = useRef(0)
-  const jumpPressed = useRef(false)
+  const jumpHeld = useRef(false)           // tracks if jump key is held for variable height
   const prevMobileJump = useRef(false)
+  const prevGrounded = useRef(true)         // for landing impact detection
+  const landingDip = useRef(0)              // camera dip amount on landing
+  const strafeTilt = useRef(0)              // current camera roll for strafe tilt
+  const velocityX = useRef(0)               // smoothed horizontal velocity X
+  const velocityZ = useRef(0)               // smoothed horizontal velocity Z
+
+  const lastAppliedRoll = useRef(0)         // undo previous frame's strafe roll
+  const mobileSprintingRef = useRef(false)  // hysteresis for mobile auto-sprint
 
   const spawnPos = useMemo(() => {
     const rows = grid.length
@@ -824,33 +866,100 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
     right.y = 0
     right.normalize()
 
+    // ---- Ground state ----
+    const floorH = getFloorHeightAt(camera.position.x, camera.position.z, grid)
+    const footY = camera.position.y - PLAYER_EYE_HEIGHT
+    const isGrounded = footY <= floorH + 0.05 && verticalVel.current <= 0
+
+    // Landing impact — detect ground entry
+    if (isGrounded && !prevGrounded.current) {
+      const fallSpeed = Math.abs(verticalVel.current)
+      if (fallSpeed > 3) {
+        landingDip.current = Math.min(0.12, fallSpeed * 0.015)
+      }
+    }
+    prevGrounded.current = isGrounded
+
+    if (isGrounded) {
+      camera.position.y = floorH + PLAYER_EYE_HEIGHT
+      verticalVel.current = 0
+    }
+
+    // ---- Input direction ----
     let mx = 0, mz = 0
     if (k['KeyW'] || k['ArrowUp']) { mx += forward.x; mz += forward.z }
     if (k['KeyS'] || k['ArrowDown']) { mx -= forward.x; mz -= forward.z }
     if (k['KeyA'] || k['ArrowLeft']) { mx -= right.x; mz -= right.z }
     if (k['KeyD'] || k['ArrowRight']) { mx += right.x; mz += right.z }
 
-    // Mobile input
+    // Mobile input — auto-sprint with hysteresis (activate >0.85, deactivate <0.7)
+    let mobileEdge = false
     if (mobileMove) {
+      const mobileMag = Math.sqrt(mobileMove[0] * mobileMove[0] + mobileMove[1] * mobileMove[1])
+      if (mobileMag > 0.85) mobileSprintingRef.current = true
+      else if (mobileMag < 0.7) mobileSprintingRef.current = false
+      mobileEdge = mobileSprintingRef.current
       mx += mobileMove[1] * forward.x + mobileMove[0] * right.x
       mz += mobileMove[1] * forward.z + mobileMove[0] * right.z
     }
 
-    const len = Math.sqrt(mx * mx + mz * mz)
-    if (len > 1) { mx /= len; mz /= len }
+    const inputLen = Math.sqrt(mx * mx + mz * mz)
+    if (inputLen > 1) { mx /= inputLen; mz /= inputLen }
+    const isMoving = inputLen > 0.05
 
-    const spd = PLAYER_SPEED * dt
+    // ---- Sprint (Shift key or mobile edge push) ----
+    const sprinting = (k['ShiftLeft'] || k['ShiftRight']) || mobileEdge
+    const sprintMult = sprinting ? 1.6 : 1.0
+    const targetSpeed = PLAYER_SPEED * sprintMult
 
-    const nx = camera.position.x + mx * spd
-    const nz = camera.position.z + mz * spd
+    // ---- Smooth acceleration / deceleration (lerp-based velocity) ----
+    const accelRate = 12   // how quickly speed ramps up
+    const decelRate = 16   // how quickly speed ramps down (slightly snappier)
+
+    if (isMoving) {
+      const targetVX = mx * targetSpeed
+      const targetVZ = mz * targetSpeed
+      const rate = accelRate * dt
+      velocityX.current += (targetVX - velocityX.current) * Math.min(rate, 1)
+      velocityZ.current += (targetVZ - velocityZ.current) * Math.min(rate, 1)
+    } else {
+      const rate = decelRate * dt
+      velocityX.current += (0 - velocityX.current) * Math.min(rate, 1)
+      velocityZ.current += (0 - velocityZ.current) * Math.min(rate, 1)
+      // Snap to zero when very slow
+      if (Math.abs(velocityX.current) < 0.1) velocityX.current = 0
+      if (Math.abs(velocityZ.current) < 0.1) velocityZ.current = 0
+    }
+
+    // ---- Air control (40% of ground influence) ----
+    let airMult = 1.0
+    if (!isGrounded) airMult = 0.4
+
+    const vx = velocityX.current * dt * airMult
+    const vz = velocityZ.current * dt * airMult
+
+    // ---- Wall collision with sliding ----
+    const nx = camera.position.x + vx
+    const nz = camera.position.z + vz
 
     let bumped = false
-    if (!checkCollision(nx, camera.position.z)) { camera.position.x = nx }
-    else { bumped = true }
-    if (!checkCollision(camera.position.x, nz)) { camera.position.z = nz }
-    else { bumped = true }
+    if (!checkCollision(nx, camera.position.z)) {
+      camera.position.x = nx
+    } else {
+      bumped = true
+      // Kill X velocity on collision
+      velocityX.current = 0
+    }
+    if (!checkCollision(camera.position.x, nz)) {
+      camera.position.z = nz
+    } else {
+      bumped = true
+      // Kill Z velocity on collision
+      velocityZ.current = 0
+    }
 
-    if (bumped && len > 0.05) {
+    // Wall bump sound
+    if (bumped && isMoving) {
       wallBumpTimer.current -= delta
       if (wallBumpTimer.current <= 0) {
         wallBumpTimer.current = WALL_BUMP_COOLDOWN
@@ -860,18 +969,7 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
       wallBumpTimer.current = 0
     }
 
-    // ---- Jump / gravity ----
-    const floorH = getFloorHeightAt(camera.position.x, camera.position.z, grid)
-    const footY = camera.position.y - PLAYER_EYE_HEIGHT
-    const isGrounded = footY <= floorH + 0.05 && verticalVel.current <= 0
-
-    if (isGrounded) {
-      // Snap to floor
-      camera.position.y = floorH + PLAYER_EYE_HEIGHT
-      verticalVel.current = 0
-    }
-
-    // Jump: Space key (desktop) or mobileJump edge-detect (mobile)
+    // ---- Variable-height jump ----
     const spaceJump = k['Space']
     let mobileJumpEdge = false
     if (mobileJump !== undefined) {
@@ -879,12 +977,22 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
       prevMobileJump.current = mobileJump
     }
 
-    if ((spaceJump || mobileJumpEdge) && isGrounded && !jumpPressed.current) {
+    const jumpKeyDown = spaceJump || mobileJumpEdge
+
+    // Jump initiation
+    if (jumpKeyDown && isGrounded && !jumpHeld.current) {
       verticalVel.current = JUMP_VELOCITY
-      jumpPressed.current = true
+      jumpHeld.current = true
     }
-    if (!spaceJump && !mobileJumpEdge) {
-      jumpPressed.current = false
+
+    // Variable height: release jump key early → cut velocity for short hop
+    if (!jumpKeyDown && jumpHeld.current && verticalVel.current > JUMP_VELOCITY * 0.3) {
+      verticalVel.current *= 0.45
+    }
+
+    // Reset jump tracking when key released
+    if (!jumpKeyDown) {
+      jumpHeld.current = false
     }
 
     // Apply gravity
@@ -904,11 +1012,17 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
       if (verticalVel.current > 0) verticalVel.current = 0
     }
 
+    // ---- Landing dip animation ----
+    if (landingDip.current > 0.001) {
+      camera.position.y -= landingDip.current
+      landingDip.current *= Math.exp(-20 * dt)  // exponential decay
+    }
+
     gameState.playerPos = [camera.position.x, camera.position.y, camera.position.z]
-    gameState.isMoving = len > 0.05
+    gameState.isMoving = isMoving
     gameState.playerOnFloor = floorH
 
-    // Mobile look — apply touch deltas to camera rotation
+    // Mobile look — apply touch deltas to camera rotation (BEFORE strafe roll)
     if (mobileLookRef && (mobileLookRef.current[0] !== 0 || mobileLookRef.current[1] !== 0)) {
       const euler = new Euler(0, 0, 0, 'YXZ')
       euler.setFromQuaternion(camera.quaternion)
@@ -919,21 +1033,45 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
       mobileLookRef.current = [0, 0]
     }
 
-    // Footstep sounds
-    if (gameState.isMoving) {
+    // ---- Camera tilt on strafe (roll) — applied AFTER mobile look ----
+    // Compute lateral (rightward) velocity component for strafe tilt
+    const lateralComponent = velocityX.current * right.x + velocityZ.current * right.z
+    const tiltRatio = Math.max(-1, Math.min(1, lateralComponent / Math.max(targetSpeed, 0.1)))
+    const targetTilt = tiltRatio * 0.04  // ~2.3° max roll
+    strafeTilt.current += (targetTilt - strafeTilt.current) * Math.min(9 * dt, 1)
+
+    // Reverse previous frame's roll to prevent accumulation
+    if (Math.abs(lastAppliedRoll.current) > 0.0001) {
+      const unrollQ = new Euler(0, 0, -lastAppliedRoll.current, 'YXZ').toQuaternion()
+      camera.quaternion.multiply(unrollQ)
+      lastAppliedRoll.current = 0
+    }
+
+    // Apply fresh strafe tilt
+    const currentRoll = strafeTilt.current
+    if (Math.abs(currentRoll) > 0.0001) {
+      const rollQ = new Euler(0, 0, currentRoll, 'YXZ').toQuaternion()
+      camera.quaternion.multiply(rollQ)
+      lastAppliedRoll.current = currentRoll
+    }
+
+    // ---- Footstep sounds (faster when sprinting) ----
+    const actualSpeed = Math.sqrt(velocityX.current ** 2 + velocityZ.current ** 2)
+    if (actualSpeed > 0.5 && isGrounded) {
+      const stepInterval = sprinting ? FOOTSTEP_INTERVAL * 0.6 : FOOTSTEP_INTERVAL
       footstepTimer.current -= delta
       if (footstepTimer.current <= 0) {
-        footstepTimer.current = FOOTSTEP_INTERVAL
+        footstepTimer.current = stepInterval
         playFootstep()
       }
     } else {
       footstepTimer.current = 0
     }
 
-    // Subtle camera bob when moving (only when grounded)
-    if (gameState.isMoving && isGrounded) {
-      bobPhase.current += delta * 10
-      const bobAmount = 0.025 * Math.sin(bobPhase.current)
+    // ---- Camera bob (faster & deeper when sprinting) ----
+    if (actualSpeed > 0.5 && isGrounded) {
+      bobPhase.current += delta * (sprinting ? 16 : 10)
+      const bobAmount = sprinting ? 0.04 * Math.sin(bobPhase.current) : 0.025 * Math.sin(bobPhase.current)
       camera.position.y += bobAmount
     }
   })
@@ -1185,8 +1323,9 @@ function GameLogic({
     // Exit portal check — use ref to avoid stale closure after same-frame crystal/key pickup
     if (activatedRef.current && !exitTriggered.current) {
       const ex = pp[0] - exitPos[0]
+      const ey = pp[1] - exitPos[1]
       const ez = pp[2] - exitPos[2]
-      if (Math.sqrt(ex * ex + ez * ez) < 2) {
+      if (Math.sqrt(ex * ex + ey * ey + ez * ez) < 2.5) {
         exitTriggered.current = true
         playPortalActivate()
         if (onLevelComplete) onLevelComplete()
@@ -1379,7 +1518,8 @@ export default function Game3D({
             </button>
             <div className="text-amber-500/30 text-xs space-y-1">
               <p><span className="text-amber-500/50 font-semibold">W A S D</span> or <span className="text-amber-500/50 font-semibold">Arrow Keys</span> to move</p>
-              <p><span className="text-amber-500/50 font-semibold">Space</span> to jump</p>
+              <p><span className="text-amber-500/50 font-semibold">Space</span> to jump — hold for higher</p>
+              <p><span className="text-amber-500/50 font-semibold">Shift</span> to sprint</p>
               <p><span className="text-amber-500/50 font-semibold">Mouse</span> to look around</p>
               <p><span className="text-amber-500/50 font-semibold">Escape</span> to pause</p>
               <p className="mt-2 text-amber-500/20">Collect crystals, find keys, open doors, reach the portal</p>
@@ -1401,8 +1541,8 @@ export default function Game3D({
               Tap to Start
             </button>
             <div className="text-amber-500/30 text-xs space-y-1">
-              <p><span className="text-amber-500/50 font-semibold">Left Joystick</span> to move</p>
-              <p><span className="text-amber-500/50 font-semibold">Center Button</span> to jump</p>
+              <p><span className="text-amber-500/50 font-semibold">Left Joystick</span> to move — push to edge to sprint</p>
+              <p><span className="text-amber-500/50 font-semibold">Center Button</span> to jump — hold for higher</p>
               <p><span className="text-amber-500/50 font-semibold">Right Area</span> to look around</p>
               <p className="mt-2 text-amber-500/20">Collect crystals, find keys, open doors, reach the portal</p>
             </div>
