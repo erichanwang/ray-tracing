@@ -1,4 +1,4 @@
-export default function HUD({ crystals, crystalsNeeded, health, maxHealth, levelName, levelIndex, totalLevels, devMode, keys = 0, totalDoors = 0, doorsOpened = 0 }) {
+export default function HUD({ crystals, crystalsNeeded, health, maxHealth, levelName, levelIndex, totalLevels, devMode, keys = 0, totalDoors = 0, doorsOpened = 0, musicVol = 1, ambientVol = 1, onChangeMusicVolume, onChangeAmbientVolume }) {
   const allCollected = crystals >= crystalsNeeded && (totalDoors === 0 || doorsOpened >= totalDoors)
   const healthPct = Math.max(0, (health / maxHealth) * 100)
   const healthColor = healthPct > 50 ? 'bg-emerald-500/60' : healthPct > 25 ? 'bg-amber-500/60' : 'bg-red-500/60'
@@ -60,6 +60,40 @@ export default function HUD({ crystals, crystalsNeeded, health, maxHealth, level
               ? 'WASD to move · Find keys to unlock doors'
               : 'WASD to move · Mouse to look · Find crystals'}
         </div>
+      </div>
+
+      {/* Volume controls — subtle, bottom-right */}
+      <div className="absolute bottom-4 right-4 bg-dungeon/80 backdrop-blur-sm rounded-lg px-3 py-2 border border-amber-700/30 flex flex-col gap-2 min-w-[140px]">
+          <div className="flex items-center gap-2">
+            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 text-amber-400/60 shrink-0" fill="currentColor">
+              <path d="M9 4v16l-4-4H2V8h3l4-4zm3 2.5v11a3.5 3.5 0 000-11zm2 0v11a5.5 5.5 0 000-11z" />
+            </svg>
+            <span className="text-amber-400/50 text-[10px] uppercase tracking-wider">Music</span>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={musicVol}
+              onChange={(e) => onChangeMusicVolume?.(parseFloat(e.target.value))}
+              className="flex-1 h-1 appearance-none bg-amber-700/30 rounded-full accent-amber-500 cursor-pointer"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <svg viewBox="0 0 24 24" className="w-3.5 h-3.5 text-amber-400/60 shrink-0" fill="currentColor">
+              <path d="M3 10h2v4H3v-4zm5-4h2v12H8V6zm5 2h2v8h-2V8zm5-4h2v16h-2V4z" />
+            </svg>
+            <span className="text-amber-400/50 text-[10px] uppercase tracking-wider">Ambient</span>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              value={ambientVol}
+              onChange={(e) => onChangeAmbientVolume?.(parseFloat(e.target.value))}
+              className="flex-1 h-1 appearance-none bg-amber-700/30 rounded-full accent-amber-500 cursor-pointer"
+            />
+          </div>
       </div>
 
       {/* Crosshair */}

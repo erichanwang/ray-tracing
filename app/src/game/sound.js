@@ -369,3 +369,203 @@ export function stopMusic() {
     musicGain = null
   }
 }
+
+export function setMusicVolume(vol) {
+  if (musicGain) {
+    try {
+      musicGain.gain.setValueAtTime(vol * 0.025, getCtx().currentTime)
+    } catch (e) {}
+  }
+}
+
+// ============ Ambient Cave Sounds ============
+
+let ambientGain = null
+let ambientActive = false
+let ambientTimeoutIds = []
+let ambientDripIds = []
+
+export function startAmbient() {
+  try {
+    const ctx = getCtx()
+    stopAmbient()
+    ambientActive = true
+
+    ambientGain = ctx.createGain()
+    ambientGain.gain.setValueAtTime(0.03, ctx.currentTime)
+    ambientGain.connect(ctx.destination)
+
+    // ---- Low wind/draft drone ----
+    function createDrone() {
+      if (!ambientActive || !ambientGain) return
+      const now = ctx.currentTime
+
+      // Use filtered noise for wind
+      const bufferSize = ctx.sampleRate * 2
+      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
+      const data = buffer.getChannelData(0)
+      // Brown noise (heavy low-end rumble)
+      let lastOut = 0
+      for (let i = 0; i < bufferSize; i++) {
+        const white = Math.random() * 2 - 1
+        lastOut = (lastOut + 0.02 * white) / 1.02
+        data[i] = lastOut * 3
+      }
+
+      const noise = ctx.createBufferSource()
+      noise.buffer = buffer
+      noise.loop = true
+
+      const bandpass = ctx.createBiquadFilter()
+      bandpass.type = 'bandpass'
+      bandpass.frequency.value = 120 + Math.random() * 80
+      bandpass.Q.value = 0.3
+
+      const lowpass = ctx.createBiquadFilter()
+      lowpass.type = 'lowpass'
+      lowpass.frequency.value = 200
+
+      const g = ctx.createGain()
+      g.gain.value = 0.15 + Math.random() * 0.1
+      // Subtle volume wobble
+      const lfo = ctx.createOscillator()
+      const lfoGain = ctx.createGain()
+      lfo.frequency.value = 0.05 + Math.random() * 0.1
+      lfoGain.gain.value = 0.04
+      lfo.connect(lfoGain)
+      lfoGain.connect(g.gain)
+      lfo.start(now)
+      lfo.stop(now + 30)
+
+      noise.connect(bandpass)
+      bandpass.connect(lowpass)
+      lowpass.connect(g)
+      g.connect(ambientGain)
+      noise.start(now)
+      noise.stop(now + 30)
+
+      noise.onended = () => {
+        try { noise.disconnect(); bandpass.disconnect(); lowpass.disconnect(); g.disconnect(); lfo.disconnect(); lfoGain.disconnect() } catch(e) {}
+      }
+
+      // Respawn drone with different params
+      const tid = setTimeout(createDrone, 25000 + Math.random() * 10000)
+      ambientTimeoutIds.push(tid)
+    }
+
+    // ---- Water drips ----
+    function scheduleDrips() {
+      if (!ambientActive || !ambientGain) return
+      const now = ctx.currentTime
+
+      // Schedule several drips at random intervals
+      const numDrips = 4 + Math.floor(Math.random() * 5)
+      for (let i = 0; i < numDrips; i++) {
+        const dripTime = now + Math.random() * 12
+        const osc = ctx.createOscillator()
+        const g = ctx.createGain()
+
+        // Echo chain — a simple delay/reverb simulation
+        const delay = ctx.createDelay(0.3)
+        delay.delayTime.value = 0.15 + Math.random() * 0.2
+        const feedback = ctx.createGain()
+        feedback.gain.value = 0.2
+
+        const highpass = ctx.createBiquadFilter()
+        highpass.type = 'highpass'
+        highpass.frequency.value = 800
+
+        osc.connect(g)
+        g.connect(highpass)
+        highpass.connect(ambientGain)
+        // Feedback loop for echo
+        highpass.connect(delay)
+        delay.connect(feedback)
+        feedback.connect(highpass)
+
+        osc.type = 'sine'
+        osc.frequency.setValueAtTime(1200 + Math.random() * 800, dripTime)
+        osc.frequency.exponentialRampToValueAtTime(400 + Math.random() * 300, dripTime + 0.15)
+        g.gain.setValueAtTime(0.0001, dripTime)
+        g.gain.exponentialRampToValueAtTime(0.12 + Math.random() * 0.08, dripTime + 0.01)
+        g.gain.exponentialRampToValueAtTime(0.001, dripTime + 0.3)
+        osc.start(dripTime)
+        osc.stop(dripTime + 0.35)
+
+        const id = { osc, g, delay, feedback, highpass }
+        ambientDripIds.push(id)
+        osc.onended = () => {
+          try { osc.disconnect(); g.disconnect(); delay.disconnect(); feedback.disconnect(); highpass.disconnect() } catch(e) {}
+          const idx = ambientDripIds.indexOf(id)
+          if (idx !== -1) ambientDripIds.splice(idx, 1)
+        }
+      }
+
+      const tid = setTimeout(scheduleDrips, 10000 + Math.random() * 5000)
+      ambientTimeoutIds.push(tid)
+    }
+
+    // ---- Distant rumble/stone settling ----
+    function scheduleRumbles() {
+      if (!ambientActive || !ambientGain) return
+      const now = ctx.currentTime
+
+      const rumbleTime = now + Math.random() * 15
+      const osc = ctx.createOscillator()
+      const g = ctx.createGain()
+      const lowpass = ctx.createBiquadFilter()
+      lowpass.type = 'lowpass'
+      lowpass.frequency.value = 40 + Math.random() * 30
+
+      osc.connect(lowpass)
+      lowpass.connect(g)
+      g.connect(ambientGain)
+
+      osc.type = 'sine'
+      osc.frequency.setValueAtTime(20 + Math.random() * 25, rumbleTime)
+      g.gain.setValueAtTime(0.0001, rumbleTime)
+      g.gain.exponentialRampToValueAtTime(0.06 + Math.random() * 0.04, rumbleTime + 0.3)
+      g.gain.exponentialRampToValueAtTime(0.001, rumbleTime + 2.0 + Math.random() * 1.5)
+      osc.start(rumbleTime)
+      osc.stop(rumbleTime + 2.5 + Math.random() * 2)
+
+      osc.onended = () => { try { osc.disconnect(); lowpass.disconnect(); g.disconnect() } catch(e) {} }
+
+      const tid = setTimeout(scheduleRumbles, 12000 + Math.random() * 18000)
+      ambientTimeoutIds.push(tid)
+    }
+
+    createDrone()
+    scheduleDrips()
+    scheduleRumbles()
+  } catch (e) {}
+}
+
+export function stopAmbient() {
+  ambientActive = false
+  ambientTimeoutIds.forEach((tid) => clearTimeout(tid))
+  ambientTimeoutIds = []
+  // Kill lingering drip nodes
+  ambientDripIds.forEach(({ osc, g, delay, feedback, highpass }) => {
+    try { osc.stop(); osc.disconnect() } catch(e) {}
+    try { g.disconnect() } catch(e) {}
+    try { delay.disconnect() } catch(e) {}
+    try { feedback.disconnect() } catch(e) {}
+    try { highpass.disconnect() } catch(e) {}
+  })
+  ambientDripIds = []
+  if (ambientGain) {
+    try {
+      ambientGain.gain.exponentialRampToValueAtTime(0.001, getCtx().currentTime + 0.3)
+    } catch (e) {}
+    ambientGain = null
+  }
+}
+
+export function setAmbientVolume(vol) {
+  if (ambientGain) {
+    try {
+      ambientGain.gain.setValueAtTime(vol * 0.03, getCtx().currentTime)
+    } catch (e) {}
+  }
+}

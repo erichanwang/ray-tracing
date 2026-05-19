@@ -8,7 +8,7 @@ import DeathScreen from './components/DeathScreen'
 import Victory from './components/Victory'
 import MobileControls from './components/MobileControls'
 import Minimap from './components/Minimap'
-import { startMusic, stopMusic } from './game/sound'
+import { startMusic, stopMusic, setMusicVolume, startAmbient, stopAmbient, setAmbientVolume } from './game/sound'
 import LEVELS from './game/levels'
 
 const MAX_HEALTH = 100
@@ -27,6 +27,14 @@ export default function App() {
   const [minimapData, setMinimapData] = useState({ playerPos: null, crystals: [], exitPos: null })
   const [keysHeld, setKeysHeld] = useState(0)
   const [doorsOpened, setDoorsOpened] = useState(0)
+  const [musicVol, setMusicVol] = useState(() => {
+    try { return parseFloat(localStorage.getItem('lanternlight_musicVol')) } catch { return 1 }
+    return 1
+  })
+  const [ambientVol, setAmbientVol] = useState(() => {
+    try { return parseFloat(localStorage.getItem('lanternlight_ambientVol')) } catch { return 1 }
+    return 1
+  })
 
   // Dev mode toggle — backtick/tilde key
   useEffect(() => {
@@ -60,6 +68,9 @@ export default function App() {
     setKeysHeld(0)
     setDoorsOpened(0)
     startMusic()
+    startAmbient()
+    setMusicVolume(musicVol)
+    setAmbientVolume(ambientVol)
     setScreen('playing')
   }, [])
 
@@ -73,11 +84,13 @@ export default function App() {
 
   const onDeath = useCallback(() => {
     stopMusic()
+    stopAmbient()
     setScreen('death')
   }, [])
 
   const onLevelComplete = useCallback(() => {
     stopMusic()
+    stopAmbient()
     setUnlockedLevel(prev => Math.max(prev, levelIndex + 1))
     if (levelIndex + 1 >= LEVELS.length) {
       setScreen('victory')
@@ -96,6 +109,9 @@ export default function App() {
     setKeysHeld(0)
     setDoorsOpened(0)
     startMusic()
+    startAmbient()
+    setMusicVolume(musicVol)
+    setAmbientVolume(ambientVol)
     setScreen('playing')
   }, [levelIndex])
 
@@ -111,11 +127,15 @@ export default function App() {
     setKeysHeld(0)
     setDoorsOpened(0)
     startMusic()
+    startAmbient()
+    setMusicVolume(musicVol)
+    setAmbientVolume(ambientVol)
     setScreen('playing')
   }, [])
 
   const goToMenu = useCallback(() => {
     stopMusic()
+    stopAmbient()
     setScreen('menu')
   }, [])
 
@@ -126,6 +146,24 @@ export default function App() {
   const onKeyCollected = useCallback((total) => {
     setKeysHeld(total)
   }, [])
+
+  const onChangeMusicVolume = useCallback((v) => {
+    setMusicVol(v)
+    setMusicVolume(v)
+    try { localStorage.setItem('lanternlight_musicVol', v) } catch {}
+  }, [])
+
+  const onChangeAmbientVolume = useCallback((v) => {
+    setAmbientVol(v)
+    setAmbientVolume(v)
+    try { localStorage.setItem('lanternlight_ambientVol', v) } catch {}
+  }, [])
+
+  // Apply saved volumes on mount
+  useEffect(() => {
+    setMusicVolume(musicVol)
+    setAmbientVolume(ambientVol)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const onDoorOpened = useCallback((total) => {
     const doorsInLevel = countDoorsInLevel(levelIndex)
@@ -179,6 +217,10 @@ export default function App() {
             keys={keysHeld}
             totalDoors={totalDoors}
             doorsOpened={doorsOpened}
+            musicVol={musicVol}
+            ambientVol={ambientVol}
+            onChangeMusicVolume={onChangeMusicVolume}
+            onChangeAmbientVolume={onChangeAmbientVolume}
           />
           <Minimap
             grid={level.grid}
