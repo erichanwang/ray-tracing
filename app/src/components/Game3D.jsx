@@ -792,6 +792,10 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
 
   const lastAppliedRoll = useRef(0)         // undo previous frame's strafe roll
   const mobileSprintingRef = useRef(false)  // hysteresis for mobile auto-sprint
+  const wallRunTilt = useRef(0)             // camera tilt toward wall during wall-run
+  const isSliding = useRef(false)           // crouch-slide active
+  const slideTimer = useRef(0)              // slide remaining duration
+  const slideCooldown = useRef(0)           // cooldown before next slide
 
   const spawnPos = useMemo(() => {
     const rows = grid.length
@@ -881,7 +885,7 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
     prevGrounded.current = isGrounded
 
     if (isGrounded) {
-      camera.position.y = floorH + PLAYER_EYE_HEIGHT
+      camera.position.y = floorH + (isSliding.current ? PLAYER_EYE_HEIGHT * 0.55 : PLAYER_EYE_HEIGHT)
       verticalVel.current = 0
     }
 
@@ -938,34 +942,86 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
     const vx = velocityX.current * dt * airMult
     const vz = velocityZ.current * dt * airMult
 
-    // ---- Wall collision with sliding ----
-    const nx = camera.position.x + vx
-    const nz = camera.position.z + vz
+    // ---- Crouch-slide (Ctrl key) ----
+    const ctrlDown = k['ControlLeft'] || k['ControlRight']
+    slideCooldown.current = Math.max(0, slideCooldown.current - dt)
+    slideTimer.current = Math.max(0, slideTimer.current - dt)
+
+    if (ctrlDown && sprinting && isGrounded && isMoving && slideCooldown.current <= 0 && !isSliding.current) {
+      isSliding.current = true
+      slideTimer.current = 0.5
+      slideCooldown.current = 1.0
+    }
+    if (isSliding.current && slideTimer.current <= 0) {
+      isSliding.current = false
+    }
+
+    const slideMult = isSliding.current ? 1.3 : 1.0
+
+    // ---- Wall collision with wall-running ----
+    const nx = camera.position.x + vx * slideMult
+    const nz = camera.position.z + vz * slideMult
 
     let bumped = false
+    let wallRunActive = false
+    const wallRunSpeed = PLAYER_SPEED * sprintMult * 1.2
+
+    // Try X movement
     if (!checkCollision(nx, camera.position.z)) {
       camera.position.x = nx
     } else {
       bumped = true
-      // Kill X velocity on collision
-      velocityX.current = 0
+      // Wall-run: if sprinting, grounded, and pressing toward the wall, slide along it
+      if (sprinting && isGrounded && isMoving) {
+        const vzOnly = camera.position.z + vz * slideMult
+        if (!checkCollision(camera.position.x, vzOnly)) {
+          // Wall is along X axis — project movement to Z (parallel)
+          camera.position.z = vzOnly
+          // Boost parallel velocity additively with a cap (not multiplicatively — avoids explosion)
+          velocityZ.current = Math.sign(velocityZ.current) * Math.min(Math.abs(velocityZ.current) * 1.05 + 0.8, wallRunSpeed)
+          velocityX.current *= 0.3
+          wallRunActive = true
+        } else {
+          velocityX.current = 0
+        }
+      } else {
+        velocityX.current = 0
+      }
     }
+
+    // Try Z movement
     if (!checkCollision(camera.position.x, nz)) {
       camera.position.z = nz
     } else {
       bumped = true
-      // Kill Z velocity on collision
-      velocityZ.current = 0
+      if (sprinting && isGrounded && isMoving) {
+        const vxOnly = camera.position.x + vx * slideMult
+        if (!checkCollision(vxOnly, camera.position.z)) {
+          // Wall is along Z axis — project movement to X (parallel)
+          camera.position.x = vxOnly
+          velocityX.current = Math.sign(velocityX.current) * Math.min(Math.abs(velocityX.current) * 1.05 + 0.8, wallRunSpeed)
+          velocityZ.current *= 0.3
+          wallRunActive = true
+        } else {
+          velocityZ.current = 0
+        }
+      } else {
+        velocityZ.current = 0
+      }
     }
 
-    // Wall bump sound
-    if (bumped && isMoving) {
+    // Wall-run camera tilt toward wall
+    const targetWallTilt = wallRunActive ? 0.06 : 0
+    wallRunTilt.current += (targetWallTilt - wallRunTilt.current) * Math.min(12 * dt, 1)
+
+    // Wall bump sound (only when not wall-running)
+    if (bumped && isMoving && !wallRunActive) {
       wallBumpTimer.current -= delta
       if (wallBumpTimer.current <= 0) {
         wallBumpTimer.current = WALL_BUMP_COOLDOWN
         playWallBump()
       }
-    } else {
+    } else if (!bumped) {
       wallBumpTimer.current = 0
     }
 
@@ -1037,7 +1093,7 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
     // Compute lateral (rightward) velocity component for strafe tilt
     const lateralComponent = velocityX.current * right.x + velocityZ.current * right.z
     const tiltRatio = Math.max(-1, Math.min(1, lateralComponent / Math.max(targetSpeed, 0.1)))
-    const targetTilt = tiltRatio * 0.04  // ~2.3° max roll
+    const targetTilt = tiltRatio * 0.04 + wallRunTilt.current * (tiltRatio > 0 ? 1 : -1)  // wall-run adds extra tilt
     strafeTilt.current += (targetTilt - strafeTilt.current) * Math.min(9 * dt, 1)
 
     // Reverse previous frame's roll to prevent accumulation
@@ -1055,10 +1111,10 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
       lastAppliedRoll.current = currentRoll
     }
 
-    // ---- Footstep sounds (faster when sprinting) ----
+    // ---- Footstep sounds (faster when sprinting or sliding) ----
     const actualSpeed = Math.sqrt(velocityX.current ** 2 + velocityZ.current ** 2)
     if (actualSpeed > 0.5 && isGrounded) {
-      const stepInterval = sprinting ? FOOTSTEP_INTERVAL * 0.6 : FOOTSTEP_INTERVAL
+      const stepInterval = (sprinting || isSliding.current) ? FOOTSTEP_INTERVAL * 0.6 : FOOTSTEP_INTERVAL
       footstepTimer.current -= delta
       if (footstepTimer.current <= 0) {
         footstepTimer.current = stepInterval
@@ -1068,12 +1124,14 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
       footstepTimer.current = 0
     }
 
-    // ---- Camera bob (faster & deeper when sprinting) ----
+    // ---- Camera bob (faster & deeper when sprinting; lowered during slide) ----
+    const slideEyeHeight = isSliding.current ? PLAYER_EYE_HEIGHT * 0.55 : PLAYER_EYE_HEIGHT
     if (actualSpeed > 0.5 && isGrounded) {
-      bobPhase.current += delta * (sprinting ? 16 : 10)
-      const bobAmount = sprinting ? 0.04 * Math.sin(bobPhase.current) : 0.025 * Math.sin(bobPhase.current)
+      bobPhase.current += delta * ((sprinting || isSliding.current) ? 16 : 10)
+      const bobAmount = (sprinting || isSliding.current) ? 0.04 * Math.sin(bobPhase.current) : 0.025 * Math.sin(bobPhase.current)
       camera.position.y += bobAmount
     }
+
   })
 
   return null
@@ -1519,7 +1577,8 @@ export default function Game3D({
             <div className="text-amber-500/30 text-xs space-y-1">
               <p><span className="text-amber-500/50 font-semibold">W A S D</span> or <span className="text-amber-500/50 font-semibold">Arrow Keys</span> to move</p>
               <p><span className="text-amber-500/50 font-semibold">Space</span> to jump — hold for higher</p>
-              <p><span className="text-amber-500/50 font-semibold">Shift</span> to sprint</p>
+              <p><span className="text-amber-500/50 font-semibold">Shift</span> to sprint (slide along walls)</p>
+              <p><span className="text-amber-500/50 font-semibold">Ctrl</span> to slide (while sprinting)</p>
               <p><span className="text-amber-500/50 font-semibold">Mouse</span> to look around</p>
               <p><span className="text-amber-500/50 font-semibold">Escape</span> to pause</p>
               <p className="mt-2 text-amber-500/20">Collect crystals, find keys, open doors, reach the portal</p>
@@ -1550,10 +1609,12 @@ export default function Game3D({
         </div>
       )}
 
-      {/* Resume hint — shown when returning from pause */}
-      {showClickHint && !paused && !isMobile && (
-        <div className="absolute inset-0 z-15 flex items-center justify-center pointer-events-none">
-          <div className="bg-black/40 backdrop-blur-sm px-6 py-3 rounded-lg border border-amber-700/20 animate-pulse-slow">
+      {/* Resume hint — fades immediately when pointer lock reacquired */}
+      {!isMobile && (
+        <div
+          className={`absolute inset-0 z-15 flex items-center justify-center pointer-events-none transition-opacity duration-150 ${showClickHint && !paused ? 'opacity-100' : 'opacity-0'}`}
+        >
+          <div className="bg-black/40 backdrop-blur-sm px-6 py-3 rounded-lg border border-amber-700/20">
             <span className="text-amber-400/70 text-sm">Click to continue</span>
           </div>
         </div>
