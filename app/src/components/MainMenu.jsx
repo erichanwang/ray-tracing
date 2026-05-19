@@ -1,6 +1,6 @@
-export default function MainMenu({ onStart, onLevelSelect }) {
+export default function MainMenu({ onStart, onLevelSelect, hasGame }) {
   return (
-    <div className="w-full h-full flex flex-col items-center justify-center bg-dungeon relative overflow-hidden">
+    <div className="w-screen h-screen flex flex-col items-center justify-center bg-dungeon relative overflow-hidden">
       {/* Ambient particles */}
       <div className="absolute inset-0 opacity-20">
         {Array.from({ length: 20 }).map((_, i) => (
@@ -55,7 +55,7 @@ export default function MainMenu({ onStart, onLevelSelect }) {
             <span className="relative z-10">Enter the Dungeon</span>
             <div className="absolute inset-0 bg-gradient-to-r from-amber-500/0 via-amber-500/10 to-amber-500/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700" />
           </button>
-          {onLevelSelect && (
+          {hasGame && onLevelSelect && (
             <button
               onClick={onLevelSelect}
               className="px-10 py-3 border border-amber-700/20 rounded-lg text-amber-400/40 text-sm transition-all duration-300 hover:border-amber-500/30 hover:text-amber-300/60 cursor-pointer w-64"

@@ -21,6 +21,7 @@ export default function App() {
   const [health, setHealth] = useState(MAX_HEALTH)
   const [devMode, setDevMode] = useState(false)
   const [unlockedLevel, setUnlockedLevel] = useState(0)
+  const [hasStartedGame, setHasStartedGame] = useState(false)
   const [mobileMove, setMobileMove] = useState([0, 0])
   const mobileLookRef = useRef([0, 0])
   const [minimapData, setMinimapData] = useState({ playerPos: null, crystals: [], exitPos: null })
@@ -42,6 +43,7 @@ export default function App() {
     setHealth(MAX_HEALTH)
     setCrystalsNeeded(LEVELS[idx].crystalsNeeded)
     setMinimapData({ playerPos: null, crystals: [], exitPos: null })
+    setHasStartedGame(true)
     startMusic()
     setScreen('playing')
   }, [])
@@ -107,7 +109,7 @@ export default function App() {
   return (
     <div className="w-full h-full bg-dungeon">
       {screen === 'menu' && (
-        <MainMenu onStart={() => startGame(0)} onLevelSelect={goToLevelSelect} />
+        <MainMenu onStart={() => startGame(0)} onLevelSelect={goToLevelSelect} hasGame={hasStartedGame} />
       )}
 
       {screen === 'levelSelect' && (

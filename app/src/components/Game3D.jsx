@@ -128,8 +128,8 @@ function LanternLight({ healthPct }) {
   const { camera } = useThree()
   const lightRef = useRef()
 
-  const intensity = 1 + (healthPct / 100) * 3
-  const distance = 8 + (healthPct / 100) * 16
+  const intensity = 3 + (healthPct / 100) * 8
+  const distance = 20 + (healthPct / 100) * 20
 
   useFrame(() => {
     if (lightRef.current) {
@@ -147,9 +147,9 @@ function LanternLight({ healthPct }) {
       color="#fbbf24"
       intensity={intensity}
       distance={distance}
-      angle={0.5}
-      penumbra={0.3}
-      decay={1.5}
+      angle={1.0}
+      penumbra={0.5}
+      decay={0.8}
       shadow-mapSize-width={1024}
       shadow-mapSize-height={1024}
       castShadow
@@ -405,7 +405,7 @@ function SceneContent({ level, health, mobileMove, mobileLookRef, onCrystalColle
 
   return (
     <>
-      <ambientLight intensity={0.08} color="#2a1a08" />
+      <ambientLight intensity={0.25} color="#2a1a08" />
       <LanternLight healthPct={healthPct} />
       <MazeWalls grid={level.grid} />
       <Floor grid={level.grid} />
@@ -422,7 +422,7 @@ function SceneContent({ level, health, mobileMove, mobileLookRef, onCrystalColle
         onDeath={onDeath}
         onMinimapUpdate={onMinimapUpdate}
       />
-      <fog attach="fog" args={['#0a0a05', 5, 30]} />
+      <fog attach="fog" args={['#0a0a05', 20, 55]} />
     </>
   )
 }
@@ -432,7 +432,7 @@ export default function Game3D({ level, health, mobileMove, mobileLookRef, onCry
     <Canvas
       shadows
       gl={{ antialias: true }}
-      camera={{ fov: 70, near: 0.1, far: 50 }}
+      camera={{ fov: 90, near: 0.1, far: 60 }}
       style={{ background: '#0a0a05' }}
     >
       <SceneContent
