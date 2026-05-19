@@ -14,6 +14,8 @@ import LEVELS from './game/levels'
 
 const MAX_HEALTH = 100
 
+const isMobileDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0)
+
 export default function App() {
   const [screen, setScreen] = useState('menu')
   const [levelIndex, setLevelIndex] = useState(0)
@@ -246,7 +248,7 @@ export default function App() {
             exitPos={minimapData.exitPos}
             devMode={devMode}
           />
-          {!paused && (
+          {!paused && isMobileDevice && (
             <MobileControls
               onMove={(mx, my) => setMobileMove([mx, -my])}
               onLookDelta={onMobileLook}

@@ -63,7 +63,7 @@ function MazeWalls({ grid }) {
     <group>
       {walls.map((w) => (
         <mesh key={w.key} position={w.pos} castShadow receiveShadow>
-          <boxGeometry args={[CELL_SIZE * 0.98, WALL_HEIGHT, CELL_SIZE * 0.98]} />
+          <boxGeometry args={[CELL_SIZE, WALL_HEIGHT, CELL_SIZE]} />
           <meshStandardMaterial map={wallTex} roughness={0.85} metalness={0.1} color={w.color} />
         </mesh>
       ))}
@@ -1235,6 +1235,7 @@ export default function Game3D({
   const [ready, setReady] = useState(false)
   const [showClickHint, setShowClickHint] = useState(false)
   const prevPausedRef = useRef(paused)
+  const canvasContainerRef = useRef(null)
 
   // Detect mobile/touch devices — PointerLockControls not supported there
   const isMobile = useMemo(() => {
@@ -1251,7 +1252,29 @@ export default function Game3D({
     if (onPointerUnlock) onPointerUnlock()
   }, [onPointerUnlock])
 
-  // When paused transitions false→true (Escape), nothing special needed.
+  // Explicit pointer lock request from button click (more reliable than pass-through)
+  const handleExplicitLock = useCallback(() => {
+    const canvas = canvasContainerRef.current?.querySelector('canvas')
+    if (canvas) {
+      canvas.requestPointerLock()
+      // handleLock will fire via PointerLockControls onLock callback
+    }
+  }, [])
+
+  // Also try locking on click anywhere on the container (fallback)
+  useEffect(() => {
+    const container = canvasContainerRef.current
+    if (!container || ready || isMobile) return
+    const onClick = () => {
+      const canvas = container.querySelector('canvas')
+      if (canvas && document.pointerLockElement !== canvas) {
+        canvas.requestPointerLock()
+      }
+    }
+    container.addEventListener('click', onClick)
+    return () => container.removeEventListener('click', onClick)
+  }, [ready, isMobile])
+
   // When paused transitions true→false (Resume), show click hint since pointer is unlocked.
   useEffect(() => {
     if (prevPausedRef.current === true && paused === false && ready) {
@@ -1267,7 +1290,7 @@ export default function Game3D({
   }, [onPointerLock])
 
   return (
-    <div className="relative w-full h-full">
+    <div className="relative w-full h-full" ref={canvasContainerRef}>
       <Canvas
         shadows
         gl={{ antialias: true }}
@@ -1291,33 +1314,52 @@ export default function Game3D({
         {!isMobile && <PointerLockControls onLock={handleLock} onUnlock={handleUnlock} />}
       </Canvas>
 
-      {/* Click to begin overlay — pointer-events-none so clicks pass through to PointerLockControls */}
+      {/* Click to begin overlay with instructions */}
       {!ready && !isMobile && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
-          <div className="text-center">
-            <div className="text-amber-400 text-2xl md:text-3xl font-bold mb-3 animate-pulse-slow">
-              Click to Begin
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 backdrop-blur-md">
+          <div className="text-center max-w-md px-6">
+            <div className="text-amber-400 text-3xl md:text-4xl font-bold mb-2 tracking-tight">
+              Lanternlight
             </div>
-            <div className="text-amber-500/40 text-sm">
-              Click anywhere to lock the cursor and start
+            <div className="w-16 h-px bg-gradient-to-r from-transparent via-amber-500/50 to-transparent mx-auto mb-5" />
+            <button
+              onClick={handleExplicitLock}
+              className="px-10 py-4 bg-amber-500/15 border-2 border-amber-500/50 rounded-xl text-amber-300 text-xl font-bold tracking-wide transition-all duration-300 hover:border-amber-400/70 hover:bg-amber-500/25 hover:text-amber-200 active:scale-95 cursor-pointer mb-6"
+            >
+              Click to Begin
+            </button>
+            <div className="text-amber-500/30 text-xs space-y-1">
+              <p><span className="text-amber-500/50 font-semibold">W A S D</span> or <span className="text-amber-500/50 font-semibold">Arrow Keys</span> to move</p>
+              <p><span className="text-amber-500/50 font-semibold">Mouse</span> to look around</p>
+              <p><span className="text-amber-500/50 font-semibold">Escape</span> to pause</p>
+              <p className="mt-2 text-amber-500/20">Collect crystals, find keys, open doors, reach the portal</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Mobile: Tap to Start button — no pointer lock on touch devices */}
+      {/* Mobile: Tap to Start button */}
       {!ready && isMobile && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <button
-            onClick={handleMobileStart}
-            className="px-10 py-4 bg-amber-500/10 border-2 border-amber-500/40 rounded-xl text-amber-300 text-xl font-bold tracking-wide active:scale-95 transition-all duration-300 hover:border-amber-400/60 hover:bg-amber-500/20 cursor-pointer"
-          >
-            Tap to Start
-          </button>
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/70 backdrop-blur-md">
+          <div className="text-center max-w-md px-6">
+            <div className="text-amber-400 text-3xl font-bold mb-2 tracking-tight">Lanternlight</div>
+            <div className="w-16 h-px bg-gradient-to-r from-transparent via-amber-500/50 to-transparent mx-auto mb-5" />
+            <button
+              onClick={handleMobileStart}
+              className="px-10 py-4 bg-amber-500/15 border-2 border-amber-500/50 rounded-xl text-amber-300 text-xl font-bold tracking-wide transition-all duration-300 hover:border-amber-400/70 hover:bg-amber-500/25 active:scale-95 cursor-pointer mb-6"
+            >
+              Tap to Start
+            </button>
+            <div className="text-amber-500/30 text-xs space-y-1">
+              <p><span className="text-amber-500/50 font-semibold">Left Joystick</span> to move</p>
+              <p><span className="text-amber-500/50 font-semibold">Right Area</span> to look around</p>
+              <p className="mt-2 text-amber-500/20">Collect crystals, find keys, open doors, reach the portal</p>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Resume hint — shown when returning from pause, pointer unlocked */}
+      {/* Resume hint — shown when returning from pause */}
       {showClickHint && !paused && !isMobile && (
         <div className="absolute inset-0 z-15 flex items-center justify-center pointer-events-none">
           <div className="bg-black/40 backdrop-blur-sm px-6 py-3 rounded-lg border border-amber-700/20 animate-pulse-slow">
