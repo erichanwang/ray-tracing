@@ -1,7 +1,7 @@
 import { useRef, useMemo, useState, useCallback, useEffect } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { PointerLockControls, useTexture } from '@react-three/drei'
-import { Vector3, Euler, DoubleSide, RepeatWrapping, BufferGeometry, BufferAttribute } from 'three'
+import { Vector3, Euler, DoubleSide, RepeatWrapping, BufferGeometry, BufferAttribute, AdditiveBlending } from 'three'
 import { playFootstep, playCrystalCollect, playPortalActivate, playDeath, playKeyCollect, playDoorOpen, playSpikeHurt, playWallBump } from '../game/sound'
 
 const CELL_SIZE = 4
@@ -45,9 +45,13 @@ function MazeWalls({ grid }) {
     for (let z = 0; z < rows; z++) {
       for (let x = 0; x < cols; x++) {
         if (grid[z][x] === WALL) {
+          // Deterministic color variation per wall for visual interest
+          const hueShift = ((x * 17 + z * 31) % 100) / 100 * 0.08 - 0.04
+          const wallColor = `hsl(60, 8%, ${9 + hueShift * 100}%)`
           items.push({
             pos: [x * CELL_SIZE - offsetX + CELL_SIZE / 2, WALL_HEIGHT / 2, z * CELL_SIZE - offsetZ + CELL_SIZE / 2],
             key: `${z}-${x}`,
+            color: wallColor,
           })
         }
       }
@@ -60,10 +64,168 @@ function MazeWalls({ grid }) {
       {walls.map((w) => (
         <mesh key={w.key} position={w.pos} castShadow receiveShadow>
           <boxGeometry args={[CELL_SIZE * 0.98, WALL_HEIGHT, CELL_SIZE * 0.98]} />
-          <meshStandardMaterial map={wallTex} roughness={0.85} metalness={0.1} color="#2a2a18" />
+          <meshStandardMaterial map={wallTex} roughness={0.85} metalness={0.1} color={w.color} />
         </mesh>
       ))}
     </group>
+  )
+}
+
+// ---- Wall torches (sconces with flickering flame) ----
+function WallTorches({ grid }) {
+  const torches = useMemo(() => {
+    const items = []
+    const rows = grid.length
+    const cols = grid[0].length
+    const offsetX = (cols * CELL_SIZE) / 2
+    const offsetZ = (rows * CELL_SIZE) / 2
+    const half = CELL_SIZE / 2
+    const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]] // N, S, W, E
+    for (let z = 0; z < rows; z++) {
+      for (let x = 0; x < cols; x++) {
+        if (grid[z][x] !== WALL) continue
+        dirs.forEach(([dx, dz], di) => {
+          const nx = x + dx
+          const nz = z + dz
+          if (nz < 0 || nz >= rows || nx < 0 || nx >= cols) return
+          if (grid[nz][nx] !== 0 && grid[nz][nx] !== SPAWN) return
+          // Only place torch on ~40% of eligible faces (deterministic)
+          if (((x * 7 + z * 13 + di * 23) % 10) > 3) return
+          const cx = x * CELL_SIZE - offsetX + CELL_SIZE / 2
+          const cz = z * CELL_SIZE - offsetZ + CELL_SIZE / 2
+          const faceX = cx + dx * half
+          const faceZ = cz + dz * half
+          items.push({
+            pos: [faceX, WALL_HEIGHT * 0.7, faceZ],
+            dir: [dx, dz],
+            key: `torch-${z}-${x}-${di}`,
+          })
+        })
+      }
+    }
+    return items
+  }, [grid])
+
+  return (
+    <group>
+      {torches.map((t) => (
+        <TorchFlame key={t.key} pos={t.pos} dir={t.dir} />
+      ))}
+    </group>
+  )
+}
+
+function TorchFlame({ pos, dir }) {
+  const lightRef = useRef()
+  const flameRef = useRef()
+  // Mount torch slightly inset from wall face
+  const mountX = pos[0] - dir[0] * 1.2
+  const mountZ = pos[2] - dir[1] * 1.2
+
+  useFrame((_, delta) => {
+    const t = Date.now() * 0.005
+    // Flicker intensity
+    const flicker = 0.7 + Math.sin(t * 13.7 + pos[0] * 7.3) * 0.15 + Math.sin(t * 19.3 + pos[2] * 11.1) * 0.1 + Math.random() * 0.05
+    if (lightRef.current) {
+      lightRef.current.intensity = flicker * 2.5
+    }
+    if (flameRef.current) {
+      const s = 0.85 + flicker * 0.3
+      flameRef.current.scale.setScalar(s)
+    }
+  })
+
+  return (
+    <group position={[mountX, pos[1], mountZ]}>
+      {/* Sconce - wall bracket */}
+      <mesh position={[dir[0] * 0.3, -0.15, dir[1] * 0.3]} rotation={[0, Math.atan2(dir[0], dir[1]), 0]} castShadow>
+        <cylinderGeometry args={[0.06, 0.08, 0.3, 6]} />
+        <meshStandardMaterial color="#3a2a18" roughness={0.6} metalness={0.8} />
+      </mesh>
+      {/* Sconce cup */}
+      <mesh position={[dir[0] * 0.7, 0.0, dir[1] * 0.7]}>
+        <cylinderGeometry args={[0.1, 0.07, 0.12, 8]} />
+        <meshStandardMaterial color="#2a1a0a" roughness={0.5} metalness={0.9} />
+      </mesh>
+      {/* Flame */}
+      <mesh ref={flameRef} position={[dir[0] * 0.7, 0.1, dir[1] * 0.7]}>
+        <sphereGeometry args={[0.08, 8, 8]} />
+        <meshBasicMaterial color="#fbbf24" />
+      </mesh>
+      {/* Inner flame */}
+      <mesh position={[dir[0] * 0.7, 0.06, dir[1] * 0.7]}>
+        <sphereGeometry args={[0.04, 6, 6]} />
+        <meshBasicMaterial color="#ffffff" />
+      </mesh>
+      {/* Flickering light */}
+      <pointLight
+        ref={lightRef}
+        position={[dir[0] * 0.7, 0.1, dir[1] * 0.7]}
+        color="#f59e0b"
+        intensity={2}
+        distance={8}
+        decay={1.2}
+      />
+    </group>
+  )
+}
+
+// ---- Atmospheric dust particles ----
+function DustParticles({ grid }) {
+  const rows = grid.length
+  const cols = grid[0].length
+
+  const [positions, sizes] = useMemo(() => {
+    const count = 400
+    const pos = new Float32Array(count * 3)
+    const sz = new Float32Array(count)
+    const offsetX = (cols * CELL_SIZE) / 2
+    const offsetZ = (rows * CELL_SIZE) / 2
+    let i = 0
+    while (i < count) {
+      const wx = (Math.random() - 0.5) * cols * CELL_SIZE
+      const wz = (Math.random() - 0.5) * rows * CELL_SIZE
+      const gx = Math.floor((wx + offsetX) / CELL_SIZE)
+      const gz = Math.floor((wz + offsetZ) / CELL_SIZE)
+      // Only spawn dust in open floor cells
+      if (gz >= 0 && gz < rows && gx >= 0 && gx < cols && grid[gz][gx] === 0) {
+        pos[i * 3] = wx
+        pos[i * 3 + 1] = Math.random() * WALL_HEIGHT
+        pos[i * 3 + 2] = wz
+        sz[i] = Math.random() * 0.04 + 0.01
+        i++
+      }
+    }
+    return [pos, sz]
+  }, [grid])
+
+  const pointsRef = useRef()
+  useFrame((_, delta) => {
+    if (pointsRef.current) {
+      const posArr = pointsRef.current.geometry.attributes.position.array
+      for (let i = 0; i < posArr.length; i += 3) {
+        posArr[i + 1] += delta * 0.15
+        if (posArr[i + 1] > WALL_HEIGHT) posArr[i + 1] = 0
+      }
+      pointsRef.current.geometry.attributes.position.needsUpdate = true
+    }
+  })
+
+  return (
+    <points ref={pointsRef}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" count={positions.length / 3} array={positions} itemSize={3} />
+      </bufferGeometry>
+      <pointsMaterial
+        color="#ffe8c0"
+        size={0.04}
+        transparent
+        opacity={0.35}
+        blending={AdditiveBlending}
+        depthWrite={false}
+        sizeAttenuation
+      />
+    </points>
   )
 }
 
@@ -86,11 +248,35 @@ function Floor({ grid }) {
 function Ceiling({ grid }) {
   const rows = grid.length
   const cols = grid[0].length
+  // Ceiling crack decals
+  const cracks = useMemo(() => {
+    const items = []
+    const offsetX = (cols * CELL_SIZE) / 2
+    const offsetZ = (rows * CELL_SIZE) / 2
+    for (let i = 0; i < 12; i++) {
+      const cx = (Math.random() - 0.5) * cols * CELL_SIZE * 0.8
+      const cz = (Math.random() - 0.5) * rows * CELL_SIZE * 0.8
+      const angle = Math.random() * Math.PI
+      const len = 2 + Math.random() * 5
+      items.push({ pos: [cx, WALL_HEIGHT + 0.02, cz], angle, len, key: `crack-${i}` })
+    }
+    return items
+  }, [cols, rows])
+
   return (
-    <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, WALL_HEIGHT + 0.01, 0]}>
-      <planeGeometry args={[cols * CELL_SIZE, rows * CELL_SIZE]} />
-      <meshStandardMaterial color="#030302" roughness={1} side={DoubleSide} />
-    </mesh>
+    <group>
+      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, WALL_HEIGHT + 0.015, 0]}>
+        <planeGeometry args={[cols * CELL_SIZE, rows * CELL_SIZE]} />
+        <meshStandardMaterial color="#030302" roughness={1} side={DoubleSide} />
+      </mesh>
+      {/* Ceiling crack lines */}
+      {cracks.map((c) => (
+        <mesh key={c.key} position={c.pos} rotation={[0, c.angle, 0]}>
+          <boxGeometry args={[c.len, 0.005, 0.02]} />
+          <meshBasicMaterial color="#010100" />
+        </mesh>
+      ))}
+    </group>
   )
 }
 
@@ -530,11 +716,34 @@ function getFloorHeightAt(wx, wz, grid) {
   return 0
 }
 
+// ---- Player shadow disc (on floor below camera) ----
+function PlayerShadow({ gameState }) {
+  const shadowRef = useRef()
+  useFrame(() => {
+    if (!shadowRef.current || !gameState.playerPos) return
+    const [px, py, pz] = gameState.playerPos
+    const floorH = gameState.playerOnFloor ?? 0
+    shadowRef.current.position.set(px, floorH + 0.03, pz)
+    // Scale based on height above floor
+    const heightAbove = py - floorH - 1.6 + 1.6
+    const s = Math.max(0.3, 1 - Math.abs(heightAbove - 1.6) * 0.2)
+    shadowRef.current.scale.setScalar(s)
+    shadowRef.current.material.opacity = Math.max(0.1, 0.35 * s)
+  })
+  return (
+    <mesh ref={shadowRef} rotation={[-Math.PI / 2, 0, 0]} renderOrder={1}>
+      <ringGeometry args={[0.15, 0.35, 32]} />
+      <meshBasicMaterial color="#000000" transparent opacity={0.35} depthWrite={false} />
+    </mesh>
+  )
+}
+
 function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, paused }) {
   const { camera } = useThree()
   const keys = useRef({})
   const footstepTimer = useRef(0)
   const wallBumpTimer = useRef(0)
+  const bobPhase = useRef(0)
 
   const spawnPos = useMemo(() => {
     const rows = grid.length
@@ -652,6 +861,7 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
 
     gameState.playerPos = [camera.position.x, camera.position.y, camera.position.z]
     gameState.isMoving = len > 0.05
+    gameState.playerOnFloor = floorH
 
     // Mobile look — apply touch deltas to camera rotation
     if (mobileLookRef && (mobileLookRef.current[0] !== 0 || mobileLookRef.current[1] !== 0)) {
@@ -673,6 +883,13 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
       }
     } else {
       footstepTimer.current = 0
+    }
+
+    // Subtle camera bob when moving
+    if (gameState.isMoving) {
+      bobPhase.current += delta * 10
+      const bobAmount = 0.025 * Math.sin(bobPhase.current)
+      camera.position.y += bobAmount
     }
   })
 
@@ -962,7 +1179,7 @@ function SceneContent({
   onDoorOpened,
   paused,
 }) {
-  const gameState = useRef({ playerPos: null, isMoving: false })
+  const gameState = useRef({ playerPos: null, isMoving: false, playerOnFloor: 0 })
   const doorsOpenedRef = useRef(new Set())
   return (
     <>
@@ -975,6 +1192,9 @@ function SceneContent({
       <StairsDisplay grid={level.grid} />
       <Ceiling grid={level.grid} />
       <SpikesDisplay grid={level.grid} />
+      <WallTorches grid={level.grid} />
+      <DustParticles grid={level.grid} />
+      <PlayerShadow gameState={gameState} />
       <Player grid={level.grid} gameState={gameState} mobileMove={mobileMove} mobileLookRef={mobileLookRef} doorsOpenedRef={doorsOpenedRef} paused={paused} />
       <GameLogic
         grid={level.grid}
