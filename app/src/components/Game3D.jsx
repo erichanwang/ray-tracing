@@ -530,7 +530,7 @@ function getFloorHeightAt(wx, wz, grid) {
   return 0
 }
 
-function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef }) {
+function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, paused }) {
   const { camera } = useThree()
   const keys = useRef({})
   const footstepTimer = useRef(0)
@@ -599,6 +599,7 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef }) 
   }, [])
 
   useFrame((_, delta) => {
+    if (paused) return
     const k = keys.current
     const forward = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
     forward.y = 0
@@ -691,6 +692,7 @@ function GameLogic({
   onKeyCollected,
   onDoorOpened,
   doorsOpenedRef,
+  paused,
 }) {
   // ---- Crystal data ----
   const crystalData = useMemo(() => {
@@ -828,6 +830,7 @@ function GameLogic({
   })
 
   useFrame((_, delta) => {
+    if (paused) return
     const pp = gameState.playerPos
     if (!pp) return
 
@@ -957,6 +960,7 @@ function SceneContent({
   onMinimapUpdate,
   onKeyCollected,
   onDoorOpened,
+  paused,
 }) {
   const gameState = useRef({ playerPos: null, isMoving: false })
   const doorsOpenedRef = useRef(new Set())
@@ -971,7 +975,7 @@ function SceneContent({
       <StairsDisplay grid={level.grid} />
       <Ceiling grid={level.grid} />
       <SpikesDisplay grid={level.grid} />
-      <Player grid={level.grid} gameState={gameState} mobileMove={mobileMove} mobileLookRef={mobileLookRef} doorsOpenedRef={doorsOpenedRef} />
+      <Player grid={level.grid} gameState={gameState} mobileMove={mobileMove} mobileLookRef={mobileLookRef} doorsOpenedRef={doorsOpenedRef} paused={paused} />
       <GameLogic
         grid={level.grid}
         crystalsNeeded={level.crystalsNeeded}
@@ -985,6 +989,7 @@ function SceneContent({
         onKeyCollected={onKeyCollected}
         onDoorOpened={onDoorOpened}
         doorsOpenedRef={doorsOpenedRef}
+        paused={paused}
       />
       <fog attach="fog" args={['#0a0a05', 20, 55]} />
     </>
@@ -1003,28 +1008,103 @@ export default function Game3D({
   onMinimapUpdate,
   onKeyCollected,
   onDoorOpened,
+  paused,
+  onPointerLock,
+  onPointerUnlock,
 }) {
+  const [ready, setReady] = useState(false)
+  const [showClickHint, setShowClickHint] = useState(false)
+  const prevPausedRef = useRef(paused)
+
+  // Detect mobile/touch devices — PointerLockControls not supported there
+  const isMobile = useMemo(() => {
+    return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0)
+  }, [])
+
+  const handleLock = useCallback(() => {
+    setReady(true)
+    setShowClickHint(false)
+    if (onPointerLock) onPointerLock()
+  }, [onPointerLock])
+
+  const handleUnlock = useCallback(() => {
+    if (onPointerUnlock) onPointerUnlock()
+  }, [onPointerUnlock])
+
+  // When paused transitions false→true (Escape), nothing special needed.
+  // When paused transitions true→false (Resume), show click hint since pointer is unlocked.
+  useEffect(() => {
+    if (prevPausedRef.current === true && paused === false && ready) {
+      setShowClickHint(true)
+    }
+    prevPausedRef.current = paused
+  }, [paused, ready])
+
+  // On mobile, just mark ready directly — no pointer lock needed
+  const handleMobileStart = useCallback(() => {
+    setReady(true)
+    if (onPointerLock) onPointerLock()
+  }, [onPointerLock])
+
   return (
-    <Canvas
-      shadows
-      gl={{ antialias: true }}
-      camera={{ fov: 90, near: 0.1, far: 60 }}
-      style={{ background: '#0a0a05' }}
-    >
-      <SceneContent
-        level={level}
-        health={health}
-        mobileMove={mobileMove}
-        mobileLookRef={mobileLookRef}
-        onCrystalCollected={onCrystalCollected}
-        onHealthChange={onHealthChange}
-        onLevelComplete={onLevelComplete}
-        onDeath={onDeath}
-        onMinimapUpdate={onMinimapUpdate}
-        onKeyCollected={onKeyCollected}
-        onDoorOpened={onDoorOpened}
-      />
-      <PointerLockControls />
-    </Canvas>
+    <div className="relative w-full h-full">
+      <Canvas
+        shadows
+        gl={{ antialias: true }}
+        camera={{ fov: 90, near: 0.1, far: 60 }}
+        style={{ background: '#0a0a05' }}
+      >
+        <SceneContent
+          level={level}
+          health={health}
+          mobileMove={mobileMove}
+          mobileLookRef={mobileLookRef}
+          onCrystalCollected={onCrystalCollected}
+          onHealthChange={onHealthChange}
+          onLevelComplete={onLevelComplete}
+          onDeath={onDeath}
+          onMinimapUpdate={onMinimapUpdate}
+          onKeyCollected={onKeyCollected}
+          onDoorOpened={onDoorOpened}
+          paused={paused || !ready}
+        />
+        {!isMobile && <PointerLockControls onLock={handleLock} onUnlock={handleUnlock} />}
+      </Canvas>
+
+      {/* Click to begin overlay — pointer-events-none so clicks pass through to PointerLockControls */}
+      {!ready && !isMobile && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
+          <div className="text-center">
+            <div className="text-amber-400 text-2xl md:text-3xl font-bold mb-3 animate-pulse-slow">
+              Click to Begin
+            </div>
+            <div className="text-amber-500/40 text-sm">
+              Click anywhere to lock the cursor and start
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile: Tap to Start button — no pointer lock on touch devices */}
+      {!ready && isMobile && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <button
+            onClick={handleMobileStart}
+            className="px-10 py-4 bg-amber-500/10 border-2 border-amber-500/40 rounded-xl text-amber-300 text-xl font-bold tracking-wide active:scale-95 transition-all duration-300 hover:border-amber-400/60 hover:bg-amber-500/20 cursor-pointer"
+          >
+            Tap to Start
+          </button>
+        </div>
+      )}
+
+      {/* Resume hint — shown when returning from pause, pointer unlocked */}
+      {showClickHint && !paused && !isMobile && (
+        <div className="absolute inset-0 z-15 flex items-center justify-center pointer-events-none">
+          <div className="bg-black/40 backdrop-blur-sm px-6 py-3 rounded-lg border border-amber-700/20 animate-pulse-slow">
+            <span className="text-amber-400/70 text-sm">Click to continue</span>
+          </div>
+        </div>
+      )}
+    </div>
   )
 }

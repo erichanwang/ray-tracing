@@ -8,6 +8,7 @@ import DeathScreen from './components/DeathScreen'
 import Victory from './components/Victory'
 import MobileControls from './components/MobileControls'
 import Minimap from './components/Minimap'
+import PauseMenu from './components/PauseMenu'
 import { startMusic, stopMusic, setMusicVolume, startAmbient, stopAmbient, setAmbientVolume } from './game/sound'
 import LEVELS from './game/levels'
 
@@ -35,6 +36,7 @@ export default function App() {
     try { return parseFloat(localStorage.getItem('lanternlight_ambientVol')) } catch { return 1 }
     return 1
   })
+  const [paused, setPaused] = useState(false)
 
   // Dev mode toggle — backtick/tilde key
   useEffect(() => {
@@ -67,6 +69,7 @@ export default function App() {
     setHasStartedGame(true)
     setKeysHeld(0)
     setDoorsOpened(0)
+    setPaused(false)
     startMusic()
     startAmbient()
     setMusicVolume(musicVol)
@@ -108,6 +111,7 @@ export default function App() {
     setMinimapData({ playerPos: null, crystals: [], exitPos: null })
     setKeysHeld(0)
     setDoorsOpened(0)
+    setPaused(false)
     startMusic()
     startAmbient()
     setMusicVolume(musicVol)
@@ -126,6 +130,7 @@ export default function App() {
     setMinimapData({ playerPos: null, crystals: [], exitPos: null })
     setKeysHeld(0)
     setDoorsOpened(0)
+    setPaused(false)
     startMusic()
     startAmbient()
     setMusicVolume(musicVol)
@@ -136,6 +141,7 @@ export default function App() {
   const goToMenu = useCallback(() => {
     stopMusic()
     stopAmbient()
+    setPaused(false)
     setScreen('menu')
   }, [])
 
@@ -164,6 +170,14 @@ export default function App() {
     setMusicVolume(musicVol)
     setAmbientVolume(ambientVol)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handlePauseToggle = useCallback(() => {
+    setPaused(p => !p)
+  }, [])
+
+  const handleResume = useCallback(() => {
+    setPaused(false)
+  }, [])
 
   const onDoorOpened = useCallback((total) => {
     const doorsInLevel = countDoorsInLevel(levelIndex)
@@ -204,6 +218,9 @@ export default function App() {
             onMinimapUpdate={setMinimapData}
             onKeyCollected={onKeyCollected}
             onDoorOpened={onDoorOpened}
+            paused={paused}
+            onPointerLock={() => setPaused(false)}
+            onPointerUnlock={() => setPaused(true)}
           />
           <HUD
             crystals={crystals}
@@ -229,10 +246,22 @@ export default function App() {
             exitPos={minimapData.exitPos}
             devMode={devMode}
           />
-          <MobileControls
-            onMove={(mx, my) => setMobileMove([mx, -my])}
-            onLookDelta={onMobileLook}
-          />
+          {!paused && (
+            <MobileControls
+              onMove={(mx, my) => setMobileMove([mx, -my])}
+              onLookDelta={onMobileLook}
+            />
+          )}
+          {paused && (
+            <PauseMenu
+              onResume={handleResume}
+              onExit={goToMenu}
+              musicVol={musicVol}
+              ambientVol={ambientVol}
+              onChangeMusicVolume={onChangeMusicVolume}
+              onChangeAmbientVolume={onChangeAmbientVolume}
+            />
+          )}
         </>
       )}
 

@@ -39,6 +39,9 @@ html, body, #root {
   background: #0a0a05;
   font-family: 'Segoe UI', system-ui, sans-serif;
   color: #fde68a;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 canvas {
