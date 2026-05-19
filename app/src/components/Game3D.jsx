@@ -1,13 +1,17 @@
 import { useRef, useMemo, useState, useCallback, useEffect } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { PointerLockControls } from '@react-three/drei'
-import * as THREE from 'three'
+import { Vector3, Euler, DoubleSide } from 'three'
+import { playFootstep, playCrystalCollect, playPortalActivate, playDeath } from '../game/sound'
 
 const CELL_SIZE = 4
 const WALL_HEIGHT = 3
 const PLAYER_SPEED = 8
 const PLAYER_RADIUS = 0.35
 const COLLECT_DISTANCE = 1.8
+const HEALTH_DRAIN_RATE = 2.5
+const HEALTH_PER_CRYSTAL = 30
+const FOOTSTEP_INTERVAL = 0.4
 
 function MazeWalls({ grid }) {
   const walls = useMemo(() => {
@@ -58,7 +62,7 @@ function Ceiling({ grid }) {
   return (
     <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, WALL_HEIGHT + 0.01, 0]} receiveShadow>
       <planeGeometry args={[cols * CELL_SIZE, rows * CELL_SIZE]} />
-      <meshStandardMaterial color="#080804" roughness={1} side={THREE.DoubleSide} />
+      <meshStandardMaterial color="#080804" roughness={1} side={DoubleSide} />
     </mesh>
   )
 }
@@ -120,15 +124,20 @@ function ExitPortalDisplay({ position, activated }) {
   )
 }
 
-function LanternLight() {
+function LanternLight({ healthPct }) {
   const { camera } = useThree()
   const lightRef = useRef()
+
+  const intensity = 1 + (healthPct / 100) * 3
+  const distance = 8 + (healthPct / 100) * 16
 
   useFrame(() => {
     if (lightRef.current) {
       lightRef.current.position.copy(camera.position)
-      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
+      const dir = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
       lightRef.current.target.position.copy(camera.position).add(dir)
+      lightRef.current.intensity = intensity
+      lightRef.current.distance = distance
     }
   })
 
@@ -136,8 +145,8 @@ function LanternLight() {
     <spotLight
       ref={lightRef}
       color="#fbbf24"
-      intensity={3}
-      distance={20}
+      intensity={intensity}
+      distance={distance}
       angle={0.5}
       penumbra={0.3}
       decay={1.5}
@@ -148,9 +157,10 @@ function LanternLight() {
   )
 }
 
-function Player({ grid, gameState }) {
+function Player({ grid, gameState, mobileMove, mobileLookRef }) {
   const { camera } = useThree()
   const keys = useRef({})
+  const footstepTimer = useRef(0)
 
   const spawnPos = useMemo(() => {
     const rows = grid.length
@@ -211,10 +221,10 @@ function Player({ grid, gameState }) {
 
   useFrame((_, delta) => {
     const k = keys.current
-    const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
+    const forward = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
     forward.y = 0
     forward.normalize()
-    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion)
+    const right = new Vector3(1, 0, 0).applyQuaternion(camera.quaternion)
     right.y = 0
     right.normalize()
 
@@ -223,6 +233,12 @@ function Player({ grid, gameState }) {
     if (k['KeyS'] || k['ArrowDown']) { mx -= forward.x; mz -= forward.z }
     if (k['KeyA'] || k['ArrowLeft']) { mx -= right.x; mz -= right.z }
     if (k['KeyD'] || k['ArrowRight']) { mx += right.x; mz += right.z }
+
+    // Mobile input
+    if (mobileMove) {
+      mx += mobileMove[1] * forward.x + mobileMove[0] * right.x
+      mz += mobileMove[1] * forward.z + mobileMove[0] * right.z
+    }
 
     const len = Math.sqrt(mx * mx + mz * mz)
     if (len > 1) { mx /= len; mz /= len }
@@ -238,12 +254,35 @@ function Player({ grid, gameState }) {
 
     camera.position.y = 1.6
     gameState.playerPos = [camera.position.x, camera.position.y, camera.position.z]
+    gameState.isMoving = len > 0.05
+
+    // Mobile look — apply touch deltas to camera rotation
+    if (mobileLookRef && (mobileLookRef.current[0] !== 0 || mobileLookRef.current[1] !== 0)) {
+      const euler = new Euler(0, 0, 0, 'YXZ')
+      euler.setFromQuaternion(camera.quaternion)
+      euler.y -= mobileLookRef.current[0] * 0.003
+      euler.x -= mobileLookRef.current[1] * 0.003
+      euler.x = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, euler.x))
+      camera.quaternion.setFromEuler(euler)
+      mobileLookRef.current = [0, 0]
+    }
+
+    // Footstep sounds
+    if (gameState.isMoving) {
+      footstepTimer.current -= delta
+      if (footstepTimer.current <= 0) {
+        footstepTimer.current = FOOTSTEP_INTERVAL
+        playFootstep()
+      }
+    } else {
+      footstepTimer.current = 0
+    }
   })
 
   return null
 }
 
-function GameLogic({ grid, crystalsNeeded, gameState, onCrystalCollected, onLevelComplete }) {
+function GameLogic({ grid, crystalsNeeded, gameState, health, onCrystalCollected, onHealthChange, onLevelComplete, onDeath, onMinimapUpdate }) {
   const crystalData = useMemo(() => {
     const items = []
     const rows = grid.length
@@ -280,7 +319,10 @@ function GameLogic({ grid, crystalsNeeded, gameState, onCrystalCollected, onLeve
 
   const collectedSet = useRef(new Set())
   const exitTriggered = useRef(false)
+  const deadRef = useRef(false)
   const [collectedCount, setCollectedCount] = useState(0)
+  const healthRef = useRef(health)
+  healthRef.current = health
 
   const activeCrystals = useMemo(() => {
     return crystalData.filter((_, i) => !collectedSet.current.has(i))
@@ -288,9 +330,37 @@ function GameLogic({ grid, crystalsNeeded, gameState, onCrystalCollected, onLeve
 
   const activated = collectedCount >= crystalsNeeded
 
-  useFrame(() => {
+  // Update minimap data (debounced via useFrame, not every render)
+  const minimapTimer = useRef(0)
+  useFrame((_, delta) => {
+    minimapTimer.current += delta
+    if (minimapTimer.current > 0.25 && onMinimapUpdate) {
+      minimapTimer.current = 0
+      onMinimapUpdate({
+        playerPos: gameState.playerPos,
+        crystals: activeCrystals,
+        exitPos,
+      })
+    }
+  })
+
+  useFrame((_, delta) => {
     const pp = gameState.playerPos
     if (!pp) return
+
+    // Health drain
+    if (!deadRef.current) {
+      const newHealth = Math.max(0, healthRef.current - HEALTH_DRAIN_RATE * delta)
+      if (newHealth !== healthRef.current) {
+        if (onHealthChange) onHealthChange(newHealth)
+        if (newHealth <= 0) {
+          deadRef.current = true
+          playDeath()
+          if (onDeath) onDeath()
+          return
+        }
+      }
+    }
 
     // Crystal collection check
     crystalData.forEach((c, i) => {
@@ -302,6 +372,10 @@ function GameLogic({ grid, crystalsNeeded, gameState, onCrystalCollected, onLeve
         const newCount = collectedSet.current.size
         setCollectedCount(newCount)
         if (onCrystalCollected) onCrystalCollected(newCount)
+        // Heal on crystal collect
+        const healed = Math.min(100, healthRef.current + HEALTH_PER_CRYSTAL)
+        if (onHealthChange) onHealthChange(healed)
+        playCrystalCollect()
       }
     })
 
@@ -311,6 +385,7 @@ function GameLogic({ grid, crystalsNeeded, gameState, onCrystalCollected, onLeve
       const ez = pp[2] - exitPos[2]
       if (Math.sqrt(ex * ex + ez * ez) < 2) {
         exitTriggered.current = true
+        playPortalActivate()
         if (onLevelComplete) onLevelComplete()
       }
     }
@@ -324,30 +399,35 @@ function GameLogic({ grid, crystalsNeeded, gameState, onCrystalCollected, onLeve
   )
 }
 
-function SceneContent({ level, onCrystalCollected, onLevelComplete }) {
-  const gameState = useRef({ playerPos: null })
+function SceneContent({ level, health, mobileMove, mobileLookRef, onCrystalCollected, onHealthChange, onLevelComplete, onDeath, onMinimapUpdate }) {
+  const gameState = useRef({ playerPos: null, isMoving: false })
+  const healthPct = (health / 100) * 100
 
   return (
     <>
       <ambientLight intensity={0.08} color="#2a1a08" />
-      <LanternLight />
+      <LanternLight healthPct={healthPct} />
       <MazeWalls grid={level.grid} />
       <Floor grid={level.grid} />
       <Ceiling grid={level.grid} />
-      <Player grid={level.grid} gameState={gameState} />
+      <Player grid={level.grid} gameState={gameState} mobileMove={mobileMove} mobileLookRef={mobileLookRef} />
       <GameLogic
         grid={level.grid}
         crystalsNeeded={level.crystalsNeeded}
         gameState={gameState}
+        health={health}
         onCrystalCollected={onCrystalCollected}
+        onHealthChange={onHealthChange}
         onLevelComplete={onLevelComplete}
+        onDeath={onDeath}
+        onMinimapUpdate={onMinimapUpdate}
       />
       <fog attach="fog" args={['#0a0a05', 5, 30]} />
     </>
   )
 }
 
-export default function Game3D({ level, onCrystalCollected, onLevelComplete }) {
+export default function Game3D({ level, health, mobileMove, mobileLookRef, onCrystalCollected, onHealthChange, onLevelComplete, onDeath, onMinimapUpdate }) {
   return (
     <Canvas
       shadows
@@ -357,8 +437,14 @@ export default function Game3D({ level, onCrystalCollected, onLevelComplete }) {
     >
       <SceneContent
         level={level}
+        health={health}
+        mobileMove={mobileMove}
+        mobileLookRef={mobileLookRef}
         onCrystalCollected={onCrystalCollected}
+        onHealthChange={onHealthChange}
         onLevelComplete={onLevelComplete}
+        onDeath={onDeath}
+        onMinimapUpdate={onMinimapUpdate}
       />
       <PointerLockControls />
     </Canvas>
