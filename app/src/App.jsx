@@ -39,6 +39,10 @@ export default function App() {
     return 1
   })
   const [paused, setPaused] = useState(false)
+  const musicVolRef = useRef(musicVol)
+  const ambientVolRef = useRef(ambientVol)
+  musicVolRef.current = musicVol
+  ambientVolRef.current = ambientVol
 
   // Dev mode toggle — backtick/tilde key
   useEffect(() => {
@@ -74,8 +78,8 @@ export default function App() {
     setPaused(false)
     startMusic()
     startAmbient()
-    setMusicVolume(musicVol)
-    setAmbientVolume(ambientVol)
+    setMusicVolume(musicVolRef.current)
+    setAmbientVolume(ambientVolRef.current)
     setScreen('playing')
   }, [])
 
@@ -116,8 +120,8 @@ export default function App() {
     setPaused(false)
     startMusic()
     startAmbient()
-    setMusicVolume(musicVol)
-    setAmbientVolume(ambientVol)
+    setMusicVolume(musicVolRef.current)
+    setAmbientVolume(ambientVolRef.current)
     setScreen('playing')
   }, [levelIndex])
 
@@ -135,8 +139,8 @@ export default function App() {
     setPaused(false)
     startMusic()
     startAmbient()
-    setMusicVolume(musicVol)
-    setAmbientVolume(ambientVol)
+    setMusicVolume(musicVolRef.current)
+    setAmbientVolume(ambientVolRef.current)
     setScreen('playing')
   }, [])
 
@@ -146,6 +150,11 @@ export default function App() {
     setPaused(false)
     setScreen('menu')
   }, [])
+
+  // Stable callbacks to prevent cascading re-renders on mobile
+  const handlePointerLock = useCallback(() => setPaused(false), [])
+  const handlePointerUnlock = useCallback(() => setPaused(true), [])
+  const handleMobileMove = useCallback((mx, my) => setMobileMove([mx, -my]), [])
 
   const goToLevelSelect = useCallback(() => {
     setScreen('levelSelect')
@@ -166,12 +175,6 @@ export default function App() {
     setAmbientVolume(v)
     try { localStorage.setItem('lanternlight_ambientVol', v) } catch {}
   }, [])
-
-  // Apply saved volumes on mount
-  useEffect(() => {
-    setMusicVolume(musicVol)
-    setAmbientVolume(ambientVol)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handlePauseToggle = useCallback(() => {
     setPaused(p => !p)
@@ -221,8 +224,8 @@ export default function App() {
             onKeyCollected={onKeyCollected}
             onDoorOpened={onDoorOpened}
             paused={paused}
-            onPointerLock={() => setPaused(false)}
-            onPointerUnlock={() => setPaused(true)}
+            onPointerLock={handlePointerLock}
+            onPointerUnlock={handlePointerUnlock}
           />
           <HUD
             crystals={crystals}
@@ -250,7 +253,7 @@ export default function App() {
           />
           {!paused && isMobileDevice && (
             <MobileControls
-              onMove={(mx, my) => setMobileMove([mx, -my])}
+              onMove={handleMobileMove}
               onLookDelta={onMobileLook}
             />
           )}
