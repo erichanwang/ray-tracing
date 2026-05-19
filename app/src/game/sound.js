@@ -295,6 +295,269 @@ export function playWallBump() {
   } catch (e) {}
 }
 
+export function playJump() {
+  try {
+    const ctx = getCtx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(150, ctx.currentTime)
+    osc.frequency.exponentialRampToValueAtTime(300, ctx.currentTime + 0.08)
+    gain.gain.setValueAtTime(0.06, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12)
+    osc.start(ctx.currentTime)
+    osc.stop(ctx.currentTime + 0.12)
+  } catch (e) {}
+}
+
+export function playLanding(fallSpeed = 0) {
+  try {
+    const ctx = getCtx()
+    const intensity = Math.min(1, Math.max(0.2, fallSpeed / 8))
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    const filter = ctx.createBiquadFilter()
+    filter.type = 'lowpass'
+    filter.frequency.value = 100 + intensity * 100
+    osc.connect(filter)
+    filter.connect(gain)
+    gain.connect(ctx.destination)
+    osc.type = 'triangle'
+    osc.frequency.setValueAtTime(60, ctx.currentTime)
+    osc.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 0.08)
+    gain.gain.setValueAtTime(0.04 * intensity, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12)
+    osc.start(ctx.currentTime)
+    osc.stop(ctx.currentTime + 0.12)
+    if (intensity > 0.6) {
+      const osc2 = ctx.createOscillator()
+      const gain2 = ctx.createGain()
+      osc2.connect(gain2)
+      gain2.connect(ctx.destination)
+      osc2.type = 'sine'
+      osc2.frequency.setValueAtTime(30, ctx.currentTime)
+      gain2.gain.setValueAtTime(0.03 * intensity, ctx.currentTime)
+      gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1)
+      osc2.start(ctx.currentTime)
+      osc2.stop(ctx.currentTime + 0.1)
+    }
+  } catch (e) {}
+}
+
+export function playSlide() {
+  try {
+    const ctx = getCtx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    const filter = ctx.createBiquadFilter()
+    filter.type = 'lowpass'
+    filter.frequency.setValueAtTime(600, ctx.currentTime)
+    filter.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.3)
+    osc.connect(filter)
+    filter.connect(gain)
+    gain.connect(ctx.destination)
+    osc.type = 'sawtooth'
+    osc.frequency.setValueAtTime(300, ctx.currentTime)
+    osc.frequency.exponentialRampToValueAtTime(80, ctx.currentTime + 0.3)
+    gain.gain.setValueAtTime(0.04, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35)
+    osc.start(ctx.currentTime)
+    osc.stop(ctx.currentTime + 0.35)
+  } catch (e) {}
+}
+
+export function playDash() {
+  try {
+    const ctx = getCtx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(400, ctx.currentTime)
+    osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.08)
+    gain.gain.setValueAtTime(0.08, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15)
+    osc.start(ctx.currentTime)
+    osc.stop(ctx.currentTime + 0.15)
+    const osc2 = ctx.createOscillator()
+    const gain2 = ctx.createGain()
+    osc2.connect(gain2)
+    gain2.connect(ctx.destination)
+    osc2.type = 'triangle'
+    osc2.frequency.setValueAtTime(600, ctx.currentTime + 0.02)
+    osc2.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.12)
+    gain2.gain.setValueAtTime(0.04, ctx.currentTime + 0.02)
+    gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15)
+    osc2.start(ctx.currentTime + 0.02)
+    osc2.stop(ctx.currentTime + 0.15)
+  } catch (e) {}
+}
+
+export function playHeartbeat() {
+  try {
+    const ctx = getCtx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    const filter = ctx.createBiquadFilter()
+    filter.type = 'lowpass'
+    filter.frequency.value = 80
+    osc.connect(filter)
+    filter.connect(gain)
+    gain.connect(ctx.destination)
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(40, ctx.currentTime)
+    gain.gain.setValueAtTime(0.08, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08)
+    osc.start(ctx.currentTime)
+    osc.stop(ctx.currentTime + 0.1)
+    // Second thump
+    const osc2 = ctx.createOscillator()
+    const gain2 = ctx.createGain()
+    osc2.connect(gain2)
+    gain2.connect(ctx.destination)
+    osc2.type = 'sine'
+    osc2.frequency.setValueAtTime(35, ctx.currentTime + 0.15)
+    gain2.gain.setValueAtTime(0.05, ctx.currentTime + 0.15)
+    gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22)
+    osc2.start(ctx.currentTime + 0.15)
+    osc2.stop(ctx.currentTime + 0.25)
+  } catch (e) {}
+}
+
+export function playPickup() {
+  try {
+    const ctx = getCtx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.type = 'triangle'
+    osc.frequency.setValueAtTime(440, ctx.currentTime)
+    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.06)
+    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12)
+    gain.gain.setValueAtTime(0.08, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.2)
+    osc.start(ctx.currentTime)
+    osc.stop(ctx.currentTime + 0.2)
+  } catch (e) {}
+}
+
+export function playSecret() {
+  try {
+    const ctx = getCtx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(523, ctx.currentTime)
+    osc.frequency.setValueAtTime(659, ctx.currentTime + 0.1)
+    osc.frequency.setValueAtTime(784, ctx.currentTime + 0.2)
+    osc.frequency.setValueAtTime(1047, ctx.currentTime + 0.3)
+    gain.gain.setValueAtTime(0.1, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45)
+    osc.start(ctx.currentTime)
+    osc.stop(ctx.currentTime + 0.45)
+  } catch (e) {}
+}
+
+export function playAchievement() {
+  try {
+    const ctx = getCtx()
+    const notes = [523, 659, 784, 1047, 784, 1047, 1319]
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.type = 'sine'
+      const t = ctx.currentTime + i * 0.08
+      osc.frequency.setValueAtTime(freq, t)
+      gain.gain.setValueAtTime(0.08, t)
+      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.12)
+      osc.start(t)
+      osc.stop(t + 0.12)
+    })
+  } catch (e) {}
+}
+
+export function playChestOpen() {
+  try {
+    const ctx = getCtx()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    const filter = ctx.createBiquadFilter()
+    filter.type = 'lowpass'
+    filter.frequency.setValueAtTime(500, ctx.currentTime)
+    filter.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.4)
+    osc.connect(filter)
+    filter.connect(gain)
+    gain.connect(ctx.destination)
+    osc.type = 'triangle'
+    osc.frequency.setValueAtTime(200, ctx.currentTime)
+    osc.frequency.setValueAtTime(250, ctx.currentTime + 0.1)
+    osc.frequency.exponentialRampToValueAtTime(60, ctx.currentTime + 0.4)
+    gain.gain.setValueAtTime(0.08, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5)
+    osc.start(ctx.currentTime)
+    osc.stop(ctx.currentTime + 0.5)
+    // Sparkle overlay
+    const osc2 = ctx.createOscillator()
+    const gain2 = ctx.createGain()
+    osc2.connect(gain2)
+    gain2.connect(ctx.destination)
+    osc2.type = 'sine'
+    osc2.frequency.setValueAtTime(1200, ctx.currentTime + 0.2)
+    osc2.frequency.setValueAtTime(1600, ctx.currentTime + 0.3)
+    osc2.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.5)
+    gain2.gain.setValueAtTime(0.05, ctx.currentTime + 0.2)
+    gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5)
+    osc2.start(ctx.currentTime + 0.2)
+    osc2.stop(ctx.currentTime + 0.5)
+  } catch (e) {}
+}
+
+export function playPotBreak() {
+  try {
+    const ctx = getCtx()
+    // Noise burst
+    const bufferSize = ctx.sampleRate * 0.1
+    const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate)
+    const data = buffer.getChannelData(0)
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / bufferSize, 3)
+    }
+    const noise = ctx.createBufferSource()
+    noise.buffer = buffer
+    const gain = ctx.createGain()
+    const highpass = ctx.createBiquadFilter()
+    highpass.type = 'highpass'
+    highpass.frequency.value = 1000
+    noise.connect(highpass)
+    highpass.connect(gain)
+    gain.connect(ctx.destination)
+    gain.gain.setValueAtTime(0.12, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12)
+    noise.start(ctx.currentTime)
+    noise.stop(ctx.currentTime + 0.12)
+    // Low thud
+    const osc = ctx.createOscillator()
+    const g = ctx.createGain()
+    osc.connect(g)
+    g.connect(ctx.destination)
+    osc.type = 'triangle'
+    osc.frequency.setValueAtTime(80, ctx.currentTime)
+    osc.frequency.exponentialRampToValueAtTime(30, ctx.currentTime + 0.08)
+    g.gain.setValueAtTime(0.06, ctx.currentTime)
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1)
+    osc.start(ctx.currentTime)
+    osc.stop(ctx.currentTime + 0.1)
+  } catch (e) {}
+}
+
 // ============ Multi-Theme Music System ============
 
 let musicGain = null

@@ -28,6 +28,21 @@ export default function App() {
   const [mobileMove, setMobileMove] = useState([0, 0])
   const [mobileJump, setMobileJump] = useState(false)
   const mobileLookRef = useRef([0, 0])
+
+  // Level state refs (used by GameLogic/Game3D) — individual useRef so they persist across renders
+  const collectedSet = useRef(new Set())
+  const keysTakenSet = useRef(new Set())
+  const doorsOpenedSet = useRef(new Set())
+  const secretsRevealed = useRef(new Set())
+  const chestsCollected = useRef(new Set())
+  const brokenPots = useRef(new Set())
+  const healthPickupsCollected = useRef(new Set())
+  const powerupsCollected = useRef(new Set())
+
+  const [hasDoubleJump, setHasDoubleJump] = useState(false)
+  const [comboCount, setComboCount] = useState(0)
+  const gameStats = useRef({ secretsFound: 0, combos: 0, dashes: 0, teleports: 0 })
+  const [elapsedTime, setElapsedTime] = useState(0)
   const [minimapData, setMinimapData] = useState({ playerPos: null, crystals: [], exitPos: null })
   const [keysHeld, setKeysHeld] = useState(0)
   const [doorsOpened, setDoorsOpened] = useState(0)
@@ -67,7 +82,23 @@ export default function App() {
     return count
   }, [])
 
+  const resetLevelState = useCallback(() => {
+    collectedSet.current = new Set()
+    keysTakenSet.current = new Set()
+    doorsOpenedSet.current = new Set()
+    secretsRevealed.current = new Set()
+    chestsCollected.current = new Set()
+    brokenPots.current = new Set()
+    healthPickupsCollected.current = new Set()
+    powerupsCollected.current = new Set()
+    setHasDoubleJump(false)
+    setComboCount(0)
+    gameStats.current = { secretsFound: 0, combos: 0, dashes: 0, teleports: 0 }
+    setElapsedTime(0)
+  }, [])
+
   const startGame = useCallback((idx = 0) => {
+    resetLevelState()
     setLevelIndex(idx)
     setCrystals(0)
     setHealth(MAX_HEALTH)
@@ -82,10 +113,49 @@ export default function App() {
     setMusicVolume(musicVolRef.current)
     setAmbientVolume(ambientVolRef.current)
     setScreen('playing')
-  }, [])
+  }, [resetLevelState])
 
   const onCrystalCollected = useCallback((count) => {
     setCrystals(count)
+  }, [])
+
+  const onComboUpdate = useCallback((count) => {
+    setComboCount(count)
+    if (count > 0) {
+      gameStats.current.combos = Math.max(gameStats.current.combos, count)
+    }
+  }, [])
+
+  const onSecretFound = useCallback((id) => {
+    gameStats.current.secretsFound = (gameStats.current.secretsFound || 0) + 1
+  }, [])
+
+  const onDoubleJumpCollected = useCallback(() => {
+    setHasDoubleJump(true)
+  }, [])
+
+  const onChestCollect = useCallback(() => {
+    // Health bonus handled in GameLogic
+  }, [])
+
+  const onPotBreak = useCallback(() => {
+    // Tracked via brokenPots ref
+  }, [])
+
+  const onHealthPickup = useCallback(() => {
+    // Healing handled in GameLogic
+  }, [])
+
+  const onDashUsed = useCallback(() => {
+    gameStats.current.dashes = (gameStats.current.dashes || 0) + 1
+  }, [])
+
+  const onTeleport = useCallback((x, z) => {
+    gameStats.current.teleports = (gameStats.current.teleports || 0) + 1
+  }, [])
+
+  const onElapsedTime = useCallback((t) => {
+    setElapsedTime(t)
   }, [])
 
   const onHealthChange = useCallback((h) => {
@@ -111,6 +181,7 @@ export default function App() {
 
   const nextLevel = useCallback(() => {
     const next = levelIndex + 1
+    resetLevelState()
     setLevelIndex(next)
     setCrystals(0)
     setHealth(MAX_HEALTH)
@@ -124,13 +195,14 @@ export default function App() {
     setMusicVolume(musicVolRef.current)
     setAmbientVolume(ambientVolRef.current)
     setScreen('playing')
-  }, [levelIndex])
+  }, [levelIndex, resetLevelState])
 
   const onMobileLook = useCallback((dx, dy) => {
     mobileLookRef.current = [mobileLookRef.current[0] + dx, mobileLookRef.current[1] + dy]
   }, [])
 
   const retryLevel = useCallback(() => {
+    resetLevelState()
     setCrystals(0)
     setHealth(MAX_HEALTH)
     mobileLookRef.current = [0, 0]
@@ -143,7 +215,7 @@ export default function App() {
     setMusicVolume(musicVolRef.current)
     setAmbientVolume(ambientVolRef.current)
     setScreen('playing')
-  }, [])
+  }, [resetLevelState])
 
   const goToMenu = useCallback(() => {
     stopMusic()
@@ -229,6 +301,25 @@ export default function App() {
             onPointerLock={handlePointerLock}
             onPointerUnlock={handlePointerUnlock}
             mobileJump={mobileJump}
+            onComboUpdate={onComboUpdate}
+            onSecretFound={onSecretFound}
+            onDoubleJumpCollected={onDoubleJumpCollected}
+            hasDoubleJump={hasDoubleJump}
+            collectedSet={collectedSet}
+            keysTakenSet={keysTakenSet}
+            doorsOpenedSet={doorsOpenedSet}
+            secretsRevealed={secretsRevealed}
+            chestsCollected={chestsCollected}
+            brokenPots={brokenPots}
+            onChestCollect={onChestCollect}
+            onPotBreak={onPotBreak}
+            onHealthPickup={onHealthPickup}
+            healthPickupsCollected={healthPickupsCollected}
+            powerupsCollected={powerupsCollected}
+            onDashUsed={onDashUsed}
+            onTeleport={onTeleport}
+            gameStats={gameStats}
+            onElapsedTime={onElapsedTime}
           />
           <HUD
             crystals={crystals}
@@ -237,6 +328,7 @@ export default function App() {
             maxHealth={MAX_HEALTH}
             levelName={level.name}
             levelIndex={levelIndex}
+            elapsedTime={elapsedTime}
             totalLevels={LEVELS.length}
             devMode={devMode}
             keys={keysHeld}

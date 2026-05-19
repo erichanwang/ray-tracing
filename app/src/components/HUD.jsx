@@ -1,17 +1,45 @@
-export default function HUD({ crystals, crystalsNeeded, health, maxHealth, levelName, levelIndex, totalLevels, devMode, keys = 0, totalDoors = 0, doorsOpened = 0, musicVol = 1, ambientVol = 1, onChangeMusicVolume, onChangeAmbientVolume }) {
+export default function HUD({ crystals, crystalsNeeded, health, maxHealth, levelName, levelIndex, totalLevels, devMode, keys = 0, totalDoors = 0, doorsOpened = 0, musicVol = 1, ambientVol = 1, onChangeMusicVolume, onChangeAmbientVolume, elapsedTime = 0 }) {
   const allCollected = crystals >= crystalsNeeded && (totalDoors === 0 || doorsOpened >= totalDoors)
   const healthPct = Math.max(0, (health / maxHealth) * 100)
   const healthColor = healthPct > 50 ? 'from-emerald-500/70 to-emerald-400/50' : healthPct > 25 ? 'from-amber-500/70 to-amber-400/50' : 'from-red-500/70 to-red-400/50'
   const isLowHealth = healthPct <= 25
+  const isCritical = healthPct <= 15
+
+  // Format elapsed time
+  const mins = Math.floor(elapsedTime / 60)
+  const secs = Math.floor(elapsedTime % 60)
+  const timeStr = `${mins}:${secs.toString().padStart(2, '0')}`
 
   return (
     <div className="fixed inset-0 pointer-events-none z-10">
+      {/* Low health vignette overlay */}
+      {isLowHealth && (
+        <div className={`absolute inset-0 pointer-events-none transition-opacity duration-700 ${isCritical ? 'opacity-80' : 'opacity-40'}`}>
+          <div className={`w-full h-full bg-[radial-gradient(ellipse_at_center,transparent_40%,rgba(200,0,0,0.3)_100%)] ${isCritical ? 'animate-pulse-slow' : ''}`} />
+        </div>
+      )}
+
+      {/* Critical health screen flash */}
+      {isCritical && (
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute inset-0 border-[6px] border-red-600/40 rounded-sm animate-pulse-slow" />
+          {/* Edge damage indicators */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-2 h-16 bg-red-500/30 blur-sm" />
+          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-2 h-16 bg-red-500/30 blur-sm" />
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 h-2 w-16 bg-red-500/30 blur-sm" />
+          <div className="absolute right-0 top-1/2 -translate-y-1/2 h-2 w-16 bg-red-500/30 blur-sm" />
+        </div>
+      )}
+
+      {/* Top bar */}
       {/* Top bar */}
       <div className="absolute top-0 left-0 right-0 p-3 md:p-4 flex justify-between items-start gap-2">
         {/* Level info */}
         <div className="bg-black/40 backdrop-blur-xl rounded-xl px-4 py-2.5 border border-white/5 shadow-lg ring-1 ring-white/[0.03]">
           <div className="text-amber-400/40 text-[10px] md:text-[11px] uppercase tracking-[0.2em] font-medium">Chamber {levelIndex + 1}</div>
           <div className="text-amber-100/80 font-semibold text-xs md:text-sm tracking-wide">{levelName}</div>
+          {/* Elapsed time */}
+          <div className="text-amber-400/25 text-[9px] md:text-[10px] tracking-[0.15em] mt-1 font-mono">{timeStr}</div>
         </div>
 
         <div className="flex flex-col gap-2 items-end">
