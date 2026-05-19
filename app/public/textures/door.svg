@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <rect width="256" height="256" fill="#3d2914"/>
+  <!-- Wood grain -->
+  <g stroke="#2a1a0c" stroke-width="1" opacity="0.5">
+    <path d="M0,20 Q128,10 256,20" fill="none"/>
+    <path d="M0,50 Q128,40 256,50" fill="none"/>
+    <path d="M0,80 Q128,90 256,80" fill="none"/>
+    <path d="M0,110 Q128,100 256,110" fill="none"/>
+    <path d="M0,140 Q128,150 256,140" fill="none"/>
+    <path d="M0,170 Q128,160 256,170" fill="none"/>
+    <path d="M0,200 Q128,210 256,200" fill="none"/>
+    <path d="M0,230 Q128,220 256,230" fill="none"/>
+  </g>
+  <!-- Vertical planks -->
+  <g stroke="#2a1a0c" stroke-width="2" opacity="0.6">
+    <line x1="42" y1="0" x2="42" y2="256"/>
+    <line x1="85" y1="0" x2="85" y2="256"/>
+    <line x1="128" y1="0" x2="128" y2="256"/>
+    <line x1="171" y1="0" x2="171" y2="256"/>
+    <line x1="214" y1="0" x2="214" y2="256"/>
+  </g>
+  <!-- Iron bands -->
+  <g fill="#4a3728" stroke="#2a1a0c" stroke-width="1">
+    <rect x="0" y="50" width="256" height="6"/>
+    <rect x="0" y="200" width="256" height="6"/>
+  </g>
+  <!-- Rivets -->
+  <g fill="#5a4738">
+    <circle cx="42" cy="53" r="3"/>
+    <circle cx="128" cy="53" r="3"/>
+    <circle cx="214" cy="53" r="3"/>
+    <circle cx="42" cy="203" r="3"/>
+    <circle cx="128" cy="203" r="3"/>
+    <circle cx="214" cy="203" r="3"/>
+  </g>
+</svg>

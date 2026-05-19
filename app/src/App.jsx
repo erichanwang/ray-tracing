@@ -25,6 +25,8 @@ export default function App() {
   const [mobileMove, setMobileMove] = useState([0, 0])
   const mobileLookRef = useRef([0, 0])
   const [minimapData, setMinimapData] = useState({ playerPos: null, crystals: [], exitPos: null })
+  const [keysHeld, setKeysHeld] = useState(0)
+  const [doorsOpened, setDoorsOpened] = useState(0)
 
   // Dev mode toggle — backtick/tilde key
   useEffect(() => {
@@ -37,6 +39,17 @@ export default function App() {
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
+  const countDoorsInLevel = useCallback((idx) => {
+    let count = 0
+    const grid = LEVELS[idx].grid
+    for (let z = 0; z < grid.length; z++) {
+      for (let x = 0; x < grid[0].length; x++) {
+        if (grid[z][x] === 6) count++
+      }
+    }
+    return count
+  }, [])
+
   const startGame = useCallback((idx = 0) => {
     setLevelIndex(idx)
     setCrystals(0)
@@ -44,6 +57,8 @@ export default function App() {
     setCrystalsNeeded(LEVELS[idx].crystalsNeeded)
     setMinimapData({ playerPos: null, crystals: [], exitPos: null })
     setHasStartedGame(true)
+    setKeysHeld(0)
+    setDoorsOpened(0)
     startMusic()
     setScreen('playing')
   }, [])
@@ -78,6 +93,8 @@ export default function App() {
     setHealth(MAX_HEALTH)
     setCrystalsNeeded(LEVELS[next].crystalsNeeded)
     setMinimapData({ playerPos: null, crystals: [], exitPos: null })
+    setKeysHeld(0)
+    setDoorsOpened(0)
     startMusic()
     setScreen('playing')
   }, [levelIndex])
@@ -91,6 +108,8 @@ export default function App() {
     setHealth(MAX_HEALTH)
     mobileLookRef.current = [0, 0]
     setMinimapData({ playerPos: null, crystals: [], exitPos: null })
+    setKeysHeld(0)
+    setDoorsOpened(0)
     startMusic()
     setScreen('playing')
   }, [])
@@ -104,7 +123,19 @@ export default function App() {
     setScreen('levelSelect')
   }, [])
 
+  const onKeyCollected = useCallback((total) => {
+    setKeysHeld(total)
+  }, [])
+
+  const onDoorOpened = useCallback((total) => {
+    const doorsInLevel = countDoorsInLevel(levelIndex)
+    // Each door opening consumes 1 key
+    setKeysHeld(prev => Math.max(0, prev - 1))
+    setDoorsOpened(total)
+  }, [levelIndex, countDoorsInLevel])
+
   const level = LEVELS[levelIndex]
+  const totalDoors = countDoorsInLevel(levelIndex)
 
   return (
     <div className="w-full h-full bg-dungeon">
@@ -133,6 +164,8 @@ export default function App() {
             onLevelComplete={onLevelComplete}
             onDeath={onDeath}
             onMinimapUpdate={setMinimapData}
+            onKeyCollected={onKeyCollected}
+            onDoorOpened={onDoorOpened}
           />
           <HUD
             crystals={crystals}
@@ -143,6 +176,9 @@ export default function App() {
             levelIndex={levelIndex}
             totalLevels={LEVELS.length}
             devMode={devMode}
+            keys={keysHeld}
+            totalDoors={totalDoors}
+            doorsOpened={doorsOpened}
           />
           <Minimap
             grid={level.grid}

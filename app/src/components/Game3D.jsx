@@ -1,19 +1,41 @@
 import { useRef, useMemo, useState, useCallback, useEffect } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { PointerLockControls } from '@react-three/drei'
-import { Vector3, Euler, DoubleSide } from 'three'
-import { playFootstep, playCrystalCollect, playPortalActivate, playDeath } from '../game/sound'
+import { PointerLockControls, useTexture } from '@react-three/drei'
+import { Vector3, Euler, DoubleSide, RepeatWrapping, BufferGeometry, BufferAttribute } from 'three'
+import { playFootstep, playCrystalCollect, playPortalActivate, playDeath, playKeyCollect, playDoorOpen, playSpikeHurt, playWallBump } from '../game/sound'
 
 const CELL_SIZE = 4
 const WALL_HEIGHT = 3
 const PLAYER_SPEED = 8
 const PLAYER_RADIUS = 0.35
 const COLLECT_DISTANCE = 1.8
-const HEALTH_DRAIN_RATE = 2.5
+const HEALTH_DRAIN_RATE = 1.0
 const HEALTH_PER_CRYSTAL = 30
 const FOOTSTEP_INTERVAL = 0.4
+const LANTERN_MIN_INTENSITY = 6
+const LANTERN_MIN_DISTANCE = 25
+const DOOR_SLIDE_DURATION = 0.8
+const SPIKES_DAMAGE_RATE = 15
+const SPIKE_HURT_COOLDOWN = 0.5
+const WALL_BUMP_COOLDOWN = 0.3
+
+// Grid value constants — see levels.js grid legend
+const WALL = 1
+const CRYSTAL = 2
+const EXIT = 3
+const SPAWN = 4
+const KEY = 5
+const DOOR = 6
+const STAIR_UP = 7
+const PLATFORM = 8
+const SPIKE = 9
 
 function MazeWalls({ grid }) {
+  const wallTex = useTexture('/textures/wall.svg')
+  wallTex.wrapS = RepeatWrapping
+  wallTex.wrapT = RepeatWrapping
+  wallTex.repeat.set(1, 1)
+
   const walls = useMemo(() => {
     const items = []
     const rows = grid.length
@@ -22,7 +44,7 @@ function MazeWalls({ grid }) {
     const offsetZ = (rows * CELL_SIZE) / 2
     for (let z = 0; z < rows; z++) {
       for (let x = 0; x < cols; x++) {
-        if (grid[z][x] === 1) {
+        if (grid[z][x] === WALL) {
           items.push({
             pos: [x * CELL_SIZE - offsetX + CELL_SIZE / 2, WALL_HEIGHT / 2, z * CELL_SIZE - offsetZ + CELL_SIZE / 2],
             key: `${z}-${x}`,
@@ -38,7 +60,7 @@ function MazeWalls({ grid }) {
       {walls.map((w) => (
         <mesh key={w.key} position={w.pos} castShadow receiveShadow>
           <boxGeometry args={[CELL_SIZE * 0.98, WALL_HEIGHT, CELL_SIZE * 0.98]} />
-          <meshStandardMaterial color="#1a1a0e" roughness={0.9} metalness={0.1} />
+          <meshStandardMaterial map={wallTex} roughness={0.85} metalness={0.1} color="#2a2a18" />
         </mesh>
       ))}
     </group>
@@ -46,12 +68,17 @@ function MazeWalls({ grid }) {
 }
 
 function Floor({ grid }) {
+  const floorTex = useTexture('/textures/floor.svg')
+  floorTex.wrapS = RepeatWrapping
+  floorTex.wrapT = RepeatWrapping
+  floorTex.repeat.set(4, 4)
+
   const rows = grid.length
   const cols = grid[0].length
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
       <planeGeometry args={[cols * CELL_SIZE, rows * CELL_SIZE]} />
-      <meshStandardMaterial color="#0d0d08" roughness={0.95} />
+      <meshStandardMaterial map={floorTex} roughness={0.7} metalness={0.05} color="#2a2a18" />
     </mesh>
   )
 }
@@ -60,9 +87,177 @@ function Ceiling({ grid }) {
   const rows = grid.length
   const cols = grid[0].length
   return (
-    <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, WALL_HEIGHT + 0.01, 0]} receiveShadow>
+    <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, WALL_HEIGHT + 0.01, 0]}>
       <planeGeometry args={[cols * CELL_SIZE, rows * CELL_SIZE]} />
-      <meshStandardMaterial color="#080804" roughness={1} side={DoubleSide} />
+      <meshStandardMaterial color="#030302" roughness={1} side={DoubleSide} />
+    </mesh>
+  )
+}
+
+// ---- Platform floors (elevated sections at Y=WALL_HEIGHT) ----
+function PlatformFloors({ grid }) {
+  const floorTex = useTexture('/textures/floor.svg')
+  floorTex.wrapS = RepeatWrapping
+  floorTex.wrapT = RepeatWrapping
+
+  const platforms = useMemo(() => {
+    const items = []
+    const rows = grid.length
+    const cols = grid[0].length
+    const offsetX = (cols * CELL_SIZE) / 2
+    const offsetZ = (rows * CELL_SIZE) / 2
+    for (let z = 0; z < rows; z++) {
+      for (let x = 0; x < cols; x++) {
+        if (grid[z][x] === PLATFORM) {
+          items.push({
+            pos: [x * CELL_SIZE - offsetX + CELL_SIZE / 2, WALL_HEIGHT, z * CELL_SIZE - offsetZ + CELL_SIZE / 2],
+            key: `plat-${z}-${x}`,
+          })
+        }
+      }
+    }
+    return items
+  }, [grid])
+
+  return (
+    <group>
+      {platforms.map((p) => (
+        <mesh key={p.key} position={p.pos} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+          <planeGeometry args={[CELL_SIZE * 0.98, CELL_SIZE * 0.98]} />
+          <meshStandardMaterial map={floorTex} roughness={0.7} metalness={0.05} color="#2a2a18" />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
+// ---- Wall extensions around platforms (railing/parapet) ----
+function PlatformWalls({ grid }) {
+  const wallTex = useTexture('/textures/wall.svg')
+  wallTex.wrapS = RepeatWrapping
+  wallTex.wrapT = RepeatWrapping
+
+  const segments = useMemo(() => {
+    const items = []
+    const rows = grid.length
+    const cols = grid[0].length
+    const offsetX = (cols * CELL_SIZE) / 2
+    const offsetZ = (rows * CELL_SIZE) / 2
+    for (let z = 0; z < rows; z++) {
+      for (let x = 0; x < cols; x++) {
+        if (grid[z][x] !== PLATFORM) continue
+        // Check 4 neighbors — if neighbor is not platform and not stair, add a barrier
+        const dirs = [[0, 1], [0, -1], [1, 0], [-1, 0]]
+        dirs.forEach(([dx, dz]) => {
+          const nx = x + dx
+          const nz = z + dz
+          if (nz < 0 || nz >= rows || nx < 0 || nx >= cols) return
+          const neighbor = grid[nz][nx]
+          if (neighbor === PLATFORM || neighbor === STAIR_UP) return
+          // Add a short wall on this edge
+          const cx = x * CELL_SIZE - offsetX + CELL_SIZE / 2
+          const cz = z * CELL_SIZE - offsetZ + CELL_SIZE / 2
+          const half = CELL_SIZE / 2
+          const wallX = cx + dx * half
+          const wallZ = cz + dz * half
+          const isX = dx !== 0
+          items.push({
+            pos: [wallX, WALL_HEIGHT + 0.5, wallZ],
+            size: isX ? [0.2, 1, CELL_SIZE * 0.96] : [CELL_SIZE * 0.96, 1, 0.2],
+            key: `pw-${z}-${x}-${dx}-${dz}`,
+          })
+        })
+      }
+    }
+    return items
+  }, [grid])
+
+  return (
+    <group>
+      {segments.map((s) => (
+        <mesh key={s.key} position={s.pos} castShadow receiveShadow>
+          <boxGeometry args={s.size} />
+          <meshStandardMaterial map={wallTex} roughness={0.85} metalness={0.1} color="#2a2a18" />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
+// ---- Stair ramps ----
+function StairsDisplay({ grid }) {
+  const floorTex = useTexture('/textures/floor.svg')
+  floorTex.wrapS = RepeatWrapping
+  floorTex.wrapT = RepeatWrapping
+
+  const stairs = useMemo(() => {
+    const items = []
+    const rows = grid.length
+    const cols = grid[0].length
+    const offsetX = (cols * CELL_SIZE) / 2
+    const offsetZ = (rows * CELL_SIZE) / 2
+    for (let z = 0; z < rows; z++) {
+      for (let x = 0; x < cols; x++) {
+        if (grid[z][x] !== STAIR_UP) continue
+        // Ramp goes from south (lower grid z) to north (higher grid z)
+        // In world coords: south = more negative Z, north = more positive Z
+        // Player walks from higher grid row to lower grid row to go up
+        const cx = x * CELL_SIZE - offsetX + CELL_SIZE / 2
+        const cz = z * CELL_SIZE - offsetZ + CELL_SIZE / 2
+        const half = CELL_SIZE / 2
+        // Custom ramp geometry: a plane tilted up from south to north
+        items.push({
+          pos: [cx, 0, cz],
+          key: `stair-${z}-${x}`,
+          gx: x,
+          gz: z,
+        })
+      }
+    }
+    return items
+  }, [grid])
+
+  return (
+    <group>
+      {stairs.map((s) => (
+        <RampMesh key={s.key} pos={s.pos} />
+      ))}
+    </group>
+  )
+}
+
+function RampMesh({ pos }) {
+  // Create a ramp that slopes from Y=0 (south/world-Z-negative) to Y=WALL_HEIGHT (north/world-Z-positive)
+  const half = CELL_SIZE / 2
+  const geometry = useMemo(() => {
+    const geo = new BufferGeometry()
+    const h = WALL_HEIGHT
+    const vertices = new Float32Array([
+      // South edge (low, Y=0) — two triangles
+      -half, 0, -half,
+       half, 0, -half,
+       half, h,  half,
+      -half, 0, -half,
+       half, h,  half,
+      -half, h,  half,
+    ])
+    const uvs = new Float32Array([
+      0, 1, 1, 1, 1, 0,
+      0, 1, 1, 0, 0, 0,
+    ])
+    geo.setAttribute('position', new BufferAttribute(vertices, 3))
+    geo.setAttribute('uv', new BufferAttribute(uvs, 2))
+    geo.computeVertexNormals()
+    return geo
+  }, [])
+
+  const tex = useTexture('/textures/floor.svg')
+  tex.wrapS = RepeatWrapping
+  tex.wrapT = RepeatWrapping
+
+  return (
+    <mesh geometry={geometry} position={pos} receiveShadow>
+      <meshStandardMaterial map={tex} roughness={0.7} metalness={0.05} color="#2a2a18" side={DoubleSide} />
     </mesh>
   )
 }
@@ -124,43 +319,222 @@ function ExitPortalDisplay({ position, activated }) {
   )
 }
 
+function KeysDisplay({ keys }) {
+  return (
+    <group>
+      {keys.map((k) => (
+        <group key={k.key}>
+          <mesh position={k.pos}>
+            {/* Key bow (ring) */}
+            <torusGeometry args={[0.15, 0.05, 8, 16]} />
+            <meshStandardMaterial
+              color="#fbbf24"
+              emissive="#d97706"
+              emissiveIntensity={1.0}
+              roughness={0.2}
+              metalness={0.6}
+            />
+          </mesh>
+          {/* Key shaft */}
+          <mesh position={[0, -0.25, 0]}>
+            <boxGeometry args={[0.06, 0.3, 0.04]} />
+            <meshStandardMaterial
+              color="#fbbf24"
+              emissive="#d97706"
+              emissiveIntensity={0.8}
+              roughness={0.2}
+              metalness={0.6}
+            />
+          </mesh>
+          <pointLight color="#fbbf24" intensity={1.5} distance={5} />
+        </group>
+      ))}
+    </group>
+  )
+}
+
+// ---- Sliding door display with animation ----
+function LockedDoorsDisplay({ doors, doorSlideStates }) {
+  const doorTex = useTexture('/textures/door.svg')
+  doorTex.wrapS = RepeatWrapping
+  doorTex.wrapT = RepeatWrapping
+
+  const { clock } = useThree()
+  const groupRefs = useRef({})
+
+  useFrame(() => {
+    const now = clock.getElapsedTime()
+    doors.forEach((d) => {
+      const state = doorSlideStates.current[d.key]
+      if (!state) return
+      // Already marked done — hide via Three.js ref (avoids React re-render dependency)
+      if (state.done) {
+        const gr = groupRefs.current[d.key]
+        if (gr) gr.visible = false
+        return
+      }
+      const elapsed = (now - state.startTime) / DOOR_SLIDE_DURATION
+      const t = Math.min(1, elapsed)
+      if (t >= 1) {
+        // Animation complete — mark done and hide immediately
+        state.done = true
+        const gr = groupRefs.current[d.key]
+        if (gr) gr.visible = false
+        return
+      }
+      // Ease-out cubic
+      const eased = 1 - Math.pow(1 - t, 3)
+      const slideY = eased * (WALL_HEIGHT + 1) // slide up into ceiling
+      const gr = groupRefs.current[d.key]
+      if (gr) {
+        gr.position.y = d.pos[1] + slideY
+        // Fade the lock glow as it slides
+        gr.children.forEach((child) => {
+          if (child.material && child.material.opacity !== undefined) {
+            child.material.opacity = 0.7 * (1 - t)
+          }
+        })
+      }
+    })
+  })
+
+  return (
+    <group>
+      {doors.map((d) => {
+        const state = doorSlideStates.current[d.key]
+        if (state && state.done) return null // fully removed after animation
+        return (
+          <group
+            key={d.key}
+            ref={(el) => { groupRefs.current[d.key] = el }}
+            position={d.pos}
+          >
+            {/* Door frame */}
+            <mesh position={[0, WALL_HEIGHT / 2, 0]} castShadow receiveShadow>
+              <boxGeometry args={[CELL_SIZE * 0.85, WALL_HEIGHT * 0.9, 0.2]} />
+              <meshStandardMaterial map={doorTex} roughness={0.6} metalness={0.4} color="#4a3728" />
+            </mesh>
+            {/* Lock icon glow */}
+            <mesh position={[0, WALL_HEIGHT / 2, 0.15]}>
+              <sphereGeometry args={[0.25, 16, 16]} />
+              <meshBasicMaterial color="#ef4444" transparent opacity={0.7} />
+            </mesh>
+            <pointLight color="#ef4444" intensity={2} distance={5} position={[0, WALL_HEIGHT / 2, 0.3]} />
+          </group>
+        )
+      })}
+    </group>
+  )
+}
+
 function LanternLight({ healthPct }) {
   const { camera } = useThree()
   const lightRef = useRef()
 
-  const intensity = 3 + (healthPct / 100) * 8
-  const distance = 20 + (healthPct / 100) * 20
+  const intensity = Math.max(LANTERN_MIN_INTENSITY, 3 + (healthPct / 100) * 8)
+  const distance = Math.max(LANTERN_MIN_DISTANCE, 20 + (healthPct / 100) * 20)
 
   useFrame(() => {
     if (lightRef.current) {
       lightRef.current.position.copy(camera.position)
-      const dir = new Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
-      lightRef.current.target.position.copy(camera.position).add(dir)
       lightRef.current.intensity = intensity
       lightRef.current.distance = distance
     }
   })
 
   return (
-    <spotLight
-      ref={lightRef}
-      color="#fbbf24"
-      intensity={intensity}
-      distance={distance}
-      angle={1.0}
-      penumbra={0.5}
-      decay={0.8}
-      shadow-mapSize-width={1024}
-      shadow-mapSize-height={1024}
-      castShadow
-    />
+    <>
+      {/* Cylindrical 360° point light centered on player */}
+      <pointLight
+        ref={lightRef}
+        color="#fbbf24"
+        intensity={intensity}
+        distance={distance}
+        decay={0.8}
+        shadow-mapSize-width={1024}
+        shadow-mapSize-height={1024}
+        castShadow
+      />
+    </>
   )
 }
 
-function Player({ grid, gameState, mobileMove, mobileLookRef }) {
+// ---- Spikes (floor hazard) ----
+function SpikesDisplay({ grid }) {
+  const spikes = useMemo(() => {
+    const items = []
+    const rows = grid.length
+    const cols = grid[0].length
+    const offsetX = (cols * CELL_SIZE) / 2
+    const offsetZ = (rows * CELL_SIZE) / 2
+    for (let z = 0; z < rows; z++) {
+      for (let x = 0; x < cols; x++) {
+        if (grid[z][x] !== SPIKE) continue
+        const yOff = getFloorHeightForCell(x, z, grid)
+        // Fill the cell with a 3x3 spike grid
+        for (let sx = 0; sx < 3; sx++) {
+          for (let sz = 0; sz < 3; sz++) {
+            const fx = x * CELL_SIZE - offsetX + CELL_SIZE / 2 + (sx - 1) * (CELL_SIZE / 3)
+            const fz = z * CELL_SIZE - offsetZ + CELL_SIZE / 2 + (sz - 1) * (CELL_SIZE / 3)
+            // Deterministic rotation per spike (position-based, not random)
+            const angle = ((sx * 13 + sz * 7 + x * 31 + z * 17) * 0.618) % (Math.PI * 2)
+            items.push({ pos: [fx, 0.05 + yOff, fz], angle, key: `spike-${z}-${x}-${sx}-${sz}` })
+          }
+        }
+      }
+    }
+    return items
+  }, [grid])
+
+  return (
+    <group>
+      {spikes.map((s) => (
+        <mesh key={s.key} position={s.pos} rotation={[0, s.angle, 0]} castShadow receiveShadow>
+          <coneGeometry args={[0.12, 0.35, 4]} />
+          <meshStandardMaterial
+            color="#8b0000"
+            emissive="#cc0000"
+            emissiveIntensity={0.4}
+            roughness={0.3}
+            metalness={0.7}
+          />
+        </mesh>
+      ))}
+    </group>
+  )
+}
+
+// ---- Compute base floor height at a world position from the grid ----
+function getFloorHeightAt(wx, wz, grid) {
+  const rows = grid.length
+  const cols = grid[0].length
+  const offsetX = (cols * CELL_SIZE) / 2
+  const offsetZ = (rows * CELL_SIZE) / 2
+  const gx = (wx + offsetX) / CELL_SIZE
+  const gz = (wz + offsetZ) / CELL_SIZE
+  const ix = Math.floor(gx)
+  const iz = Math.floor(gz)
+  if (iz < 0 || iz >= rows || ix < 0 || ix >= cols) return 0
+
+  const cell = grid[iz][ix]
+  if (cell === PLATFORM) return WALL_HEIGHT
+  if (cell === STAIR_UP) {
+    // Ramp: south (higher grid Z) = Y=0, north (lower grid Z) = Y=WALL_HEIGHT
+    // Within the cell, t goes from 0 (south edge) to 1 (north edge)
+    // In world coords: south = more negative Z, north = more positive Z
+    const cellWorldZ = iz * CELL_SIZE - offsetZ + CELL_SIZE / 2
+    const southEdge = cellWorldZ - CELL_SIZE / 2
+    const t = (wz - southEdge) / CELL_SIZE
+    return Math.max(0, Math.min(WALL_HEIGHT, t * WALL_HEIGHT))
+  }
+  return 0
+}
+
+function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef }) {
   const { camera } = useThree()
   const keys = useRef({})
   const footstepTimer = useRef(0)
+  const wallBumpTimer = useRef(0)
 
   const spawnPos = useMemo(() => {
     const rows = grid.length
@@ -169,7 +543,7 @@ function Player({ grid, gameState, mobileMove, mobileLookRef }) {
     const offsetZ = (rows * CELL_SIZE) / 2
     for (let z = 0; z < rows; z++) {
       for (let x = 0; x < cols; x++) {
-        if (grid[z][x] === 4) {
+        if (grid[z][x] === SPAWN) {
           return [x * CELL_SIZE - offsetX + CELL_SIZE / 2, 1.6, z * CELL_SIZE - offsetZ + CELL_SIZE / 2]
         }
       }
@@ -190,13 +564,18 @@ function Player({ grid, gameState, mobileMove, mobileLookRef }) {
       for (let dx = -1; dx <= 1; dx++) {
         const cx = gridX + dx
         const cz = gridZ + dz
-        if (cz >= 0 && cz < rows && cx >= 0 && cx < cols && grid[cz][cx] === 1) {
-          const wcx = cx * CELL_SIZE - offsetX + CELL_SIZE / 2
-          const wcz = cz * CELL_SIZE - offsetZ + CELL_SIZE / 2
-          const closestX = Math.max(wcx - half, Math.min(x, wcx + half))
-          const closestZ = Math.max(wcz - half, Math.min(z, wcz + half))
-          if (Math.sqrt((x - closestX) ** 2 + (z - closestZ) ** 2) < PLAYER_RADIUS) {
-            return true
+        if (cz >= 0 && cz < rows && cx >= 0 && cx < cols) {
+          const cell = grid[cz][cx]
+          // Walls always block; locked doors only block if not yet opened
+          const blocks = cell === WALL || (cell === DOOR && !(doorsOpenedRef?.current?.has(`${cz}-${cx}`)))
+          if (blocks) {
+            const wcx = cx * CELL_SIZE - offsetX + CELL_SIZE / 2
+            const wcz = cz * CELL_SIZE - offsetZ + CELL_SIZE / 2
+            const closestX = Math.max(wcx - half, Math.min(x, wcx + half))
+            const closestZ = Math.max(wcz - half, Math.min(z, wcz + half))
+            if (Math.sqrt((x - closestX) ** 2 + (z - closestZ) ** 2) < PLAYER_RADIUS) {
+              return true
+            }
           }
         }
       }
@@ -249,10 +628,27 @@ function Player({ grid, gameState, mobileMove, mobileLookRef }) {
     const nx = camera.position.x + mx * spd
     const nz = camera.position.z + mz * spd
 
-    if (!checkCollision(nx, camera.position.z)) camera.position.x = nx
-    if (!checkCollision(camera.position.x, nz)) camera.position.z = nz
+    let bumped = false
+    if (!checkCollision(nx, camera.position.z)) { camera.position.x = nx }
+    else { bumped = true }
+    if (!checkCollision(camera.position.x, nz)) { camera.position.z = nz }
+    else { bumped = true }
 
-    camera.position.y = 1.6
+    if (bumped && len > 0.05) {
+      wallBumpTimer.current -= delta
+      if (wallBumpTimer.current <= 0) {
+        wallBumpTimer.current = WALL_BUMP_COOLDOWN
+        playWallBump()
+      }
+    } else {
+      wallBumpTimer.current = 0
+    }
+
+    // Calculate floor height at current position for stair/platform support
+    const floorH = getFloorHeightAt(camera.position.x, camera.position.z, grid)
+    const targetY = floorH + 1.6 // eye height above floor
+    camera.position.y += (targetY - camera.position.y) * Math.min(1, delta * 12) // smooth lerp
+
     gameState.playerPos = [camera.position.x, camera.position.y, camera.position.z]
     gameState.isMoving = len > 0.05
 
@@ -282,7 +678,21 @@ function Player({ grid, gameState, mobileMove, mobileLookRef }) {
   return null
 }
 
-function GameLogic({ grid, crystalsNeeded, gameState, health, onCrystalCollected, onHealthChange, onLevelComplete, onDeath, onMinimapUpdate }) {
+function GameLogic({
+  grid,
+  crystalsNeeded,
+  gameState,
+  health,
+  onCrystalCollected,
+  onHealthChange,
+  onLevelComplete,
+  onDeath,
+  onMinimapUpdate,
+  onKeyCollected,
+  onDoorOpened,
+  doorsOpenedRef,
+}) {
+  // ---- Crystal data ----
   const crystalData = useMemo(() => {
     const items = []
     const rows = grid.length
@@ -291,10 +701,55 @@ function GameLogic({ grid, crystalsNeeded, gameState, health, onCrystalCollected
     const offsetZ = (rows * CELL_SIZE) / 2
     for (let z = 0; z < rows; z++) {
       for (let x = 0; x < cols; x++) {
-        if (grid[z][x] === 2) {
+        if (grid[z][x] === CRYSTAL) {
+          // Items on elevated platforms need to be at platform height
+          const yOff = grid[z][x] === CRYSTAL ? getFloorHeightForCell(x, z, grid) : 0
           items.push({
-            pos: [x * CELL_SIZE - offsetX + CELL_SIZE / 2, 1.2, z * CELL_SIZE - offsetZ + CELL_SIZE / 2],
+            pos: [x * CELL_SIZE - offsetX + CELL_SIZE / 2, 1.2 + yOff, z * CELL_SIZE - offsetZ + CELL_SIZE / 2],
             key: `crystal-${z}-${x}`,
+          })
+        }
+      }
+    }
+    return items
+  }, [grid])
+
+  // ---- Key data ----
+  const keyData = useMemo(() => {
+    const items = []
+    const rows = grid.length
+    const cols = grid[0].length
+    const offsetX = (cols * CELL_SIZE) / 2
+    const offsetZ = (rows * CELL_SIZE) / 2
+    for (let z = 0; z < rows; z++) {
+      for (let x = 0; x < cols; x++) {
+        if (grid[z][x] === KEY) {
+          const yOff = getFloorHeightForCell(x, z, grid)
+          items.push({
+            pos: [x * CELL_SIZE - offsetX + CELL_SIZE / 2, 1.0 + yOff, z * CELL_SIZE - offsetZ + CELL_SIZE / 2],
+            key: `key-${z}-${x}`,
+          })
+        }
+      }
+    }
+    return items
+  }, [grid])
+
+  // ---- Door data ----
+  const doorData = useMemo(() => {
+    const items = []
+    const rows = grid.length
+    const cols = grid[0].length
+    const offsetX = (cols * CELL_SIZE) / 2
+    const offsetZ = (rows * CELL_SIZE) / 2
+    for (let z = 0; z < rows; z++) {
+      for (let x = 0; x < cols; x++) {
+        if (grid[z][x] === DOOR) {
+          items.push({
+            pos: [x * CELL_SIZE - offsetX + CELL_SIZE / 2, 0, z * CELL_SIZE - offsetZ + CELL_SIZE / 2],
+            key: `door-${z}-${x}`,
+            gx: x,
+            gz: z,
           })
         }
       }
@@ -309,7 +764,7 @@ function GameLogic({ grid, crystalsNeeded, gameState, health, onCrystalCollected
     const offsetZ = (rows * CELL_SIZE) / 2
     for (let z = 0; z < rows; z++) {
       for (let x = 0; x < cols; x++) {
-        if (grid[z][x] === 3) {
+        if (grid[z][x] === EXIT) {
           return [x * CELL_SIZE - offsetX + CELL_SIZE / 2, 1, z * CELL_SIZE - offsetZ + CELL_SIZE / 2]
         }
       }
@@ -318,20 +773,48 @@ function GameLogic({ grid, crystalsNeeded, gameState, health, onCrystalCollected
   }, [grid])
 
   const collectedSet = useRef(new Set())
+  const keysTakenSet = useRef(new Set())
+  const doorsOpenedSet = useRef(new Set())
   const exitTriggered = useRef(false)
   const deadRef = useRef(false)
   const [collectedCount, setCollectedCount] = useState(0)
+  const [keysTakenCount, setKeysTakenCount] = useState(0)
+  const [doorsOpenedCount, setDoorsOpenedCount] = useState(0)
   const healthRef = useRef(health)
   healthRef.current = health
+
+  // Door slide animation state
+  const doorSlideStates = useRef({})
+  const { clock } = useThree()
 
   const activeCrystals = useMemo(() => {
     return crystalData.filter((_, i) => !collectedSet.current.has(i))
   }, [crystalData, collectedCount])
 
-  const activated = collectedCount >= crystalsNeeded
+  const activeKeys = useMemo(() => {
+    return keyData.filter((_, i) => !keysTakenSet.current.has(i))
+  }, [keyData, keysTakenCount])
 
-  // Update minimap data (debounced via useFrame, not every render)
+  const activeDoors = useMemo(() => {
+    return doorData.filter((_, i) => {
+      if (doorsOpenedSet.current.has(i)) {
+        const state = doorSlideStates.current[`door-${doorData[i].gz}-${doorData[i].gx}`]
+        // Show door during slide animation, hide after
+        if (state && !state.done) return true
+        return false
+      }
+      return true
+    })
+  }, [doorData, doorsOpenedCount])
+
+  const allDoorsOpen = doorsOpenedSet.current.size >= doorData.length
+  const activated = collectedCount >= crystalsNeeded && allDoorsOpen
+
+
+
+  // Update minimap data
   const minimapTimer = useRef(0)
+  const spikeHurtTimer = useRef(0)
   useFrame((_, delta) => {
     minimapTimer.current += delta
     if (minimapTimer.current > 0.25 && onMinimapUpdate) {
@@ -348,9 +831,26 @@ function GameLogic({ grid, crystalsNeeded, gameState, health, onCrystalCollected
     const pp = gameState.playerPos
     if (!pp) return
 
-    // Health drain
+    // Health drain (base rate + spike damage if standing on spikes)
     if (!deadRef.current) {
-      const newHealth = Math.max(0, healthRef.current - HEALTH_DRAIN_RATE * delta)
+      const rows = grid.length
+      const cols = grid[0].length
+      const offsetX = (cols * CELL_SIZE) / 2
+      const offsetZ = (rows * CELL_SIZE) / 2
+      const gx = Math.floor((pp[0] + offsetX) / CELL_SIZE)
+      const gz = Math.floor((pp[2] + offsetZ) / CELL_SIZE)
+      const onSpikes = gz >= 0 && gz < rows && gx >= 0 && gx < cols && grid[gz][gx] === SPIKE
+      if (onSpikes) {
+        spikeHurtTimer.current -= delta
+        if (spikeHurtTimer.current <= 0) {
+          spikeHurtTimer.current = SPIKE_HURT_COOLDOWN
+          playSpikeHurt()
+        }
+      } else {
+        spikeHurtTimer.current = 0
+      }
+      const drainRate = HEALTH_DRAIN_RATE + (onSpikes ? SPIKES_DAMAGE_RATE : 0)
+      const newHealth = Math.max(0, healthRef.current - drainRate * delta)
       if (newHealth !== healthRef.current) {
         if (onHealthChange) onHealthChange(newHealth)
         if (newHealth <= 0) {
@@ -362,24 +862,61 @@ function GameLogic({ grid, crystalsNeeded, gameState, health, onCrystalCollected
       }
     }
 
-    // Crystal collection check
+    // Crystal collection
     crystalData.forEach((c, i) => {
       if (collectedSet.current.has(i)) return
       const dx = pp[0] - c.pos[0]
+      const dy = pp[1] - c.pos[1]
       const dz = pp[2] - c.pos[2]
-      if (Math.sqrt(dx * dx + dz * dz) < COLLECT_DISTANCE) {
+      if (Math.sqrt(dx * dx + dy * dy + dz * dz) < COLLECT_DISTANCE) {
         collectedSet.current.add(i)
         const newCount = collectedSet.current.size
         setCollectedCount(newCount)
         if (onCrystalCollected) onCrystalCollected(newCount)
-        // Heal on crystal collect
         const healed = Math.min(100, healthRef.current + HEALTH_PER_CRYSTAL)
         if (onHealthChange) onHealthChange(healed)
         playCrystalCollect()
       }
     })
 
-    // Exit portal check (guarded against repeated calls)
+    // Key collection
+    keyData.forEach((k, i) => {
+      if (keysTakenSet.current.has(i)) return
+      const dx = pp[0] - k.pos[0]
+      const dy = pp[1] - k.pos[1]
+      const dz = pp[2] - k.pos[2]
+      if (Math.sqrt(dx * dx + dy * dy + dz * dz) < COLLECT_DISTANCE) {
+        keysTakenSet.current.add(i)
+        const newCount = keysTakenSet.current.size
+        setKeysTakenCount(newCount)
+        if (onKeyCollected) onKeyCollected(newCount)
+        playKeyCollect()
+      }
+    })
+
+    // Door opening (consume a key per door)
+    let spareKeys = keysTakenSet.current.size - doorsOpenedSet.current.size
+    doorData.forEach((d, i) => {
+      if (doorsOpenedSet.current.has(i)) return
+      if (spareKeys <= 0) return
+      const dx = pp[0] - d.pos[0]
+      const dy = pp[1] - (d.pos[1] + WALL_HEIGHT / 2)
+      const dz = pp[2] - d.pos[2]
+      if (Math.sqrt(dx * dx + dy * dy + dz * dz) < COLLECT_DISTANCE) {
+        doorsOpenedSet.current.add(i)
+        spareKeys--
+        // Track opened door for collision skip in Player
+        if (doorsOpenedRef) doorsOpenedRef.current.add(`${d.gz}-${d.gx}`)
+        // Start slide animation
+        doorSlideStates.current[d.key] = { startTime: clock.getElapsedTime(), done: false }
+        const newDoorsCount = doorsOpenedSet.current.size
+        setDoorsOpenedCount(newDoorsCount)
+        if (onDoorOpened) onDoorOpened(newDoorsCount)
+        playDoorOpen()
+      }
+    })
+
+    // Exit portal check
     if (activated && !exitTriggered.current) {
       const ex = pp[0] - exitPos[0]
       const ez = pp[2] - exitPos[2]
@@ -394,23 +931,47 @@ function GameLogic({ grid, crystalsNeeded, gameState, health, onCrystalCollected
   return (
     <>
       <CrystalsDisplay crystals={activeCrystals} />
+      <KeysDisplay keys={activeKeys} />
+      <LockedDoorsDisplay doors={activeDoors} doorSlideStates={doorSlideStates} />
       <ExitPortalDisplay position={exitPos} activated={activated} />
     </>
   )
 }
 
-function SceneContent({ level, health, mobileMove, mobileLookRef, onCrystalCollected, onHealthChange, onLevelComplete, onDeath, onMinimapUpdate }) {
-  const gameState = useRef({ playerPos: null, isMoving: false })
-  const healthPct = (health / 100) * 100
+// Helper: get floor height for a grid cell (used to offset items on platforms)
+function getFloorHeightForCell(gx, gz, grid) {
+  const cell = grid[gz][gx]
+  if (cell === PLATFORM) return WALL_HEIGHT
+  return 0
+}
 
+function SceneContent({
+  level,
+  health,
+  mobileMove,
+  mobileLookRef,
+  onCrystalCollected,
+  onHealthChange,
+  onLevelComplete,
+  onDeath,
+  onMinimapUpdate,
+  onKeyCollected,
+  onDoorOpened,
+}) {
+  const gameState = useRef({ playerPos: null, isMoving: false })
+  const doorsOpenedRef = useRef(new Set())
   return (
     <>
       <ambientLight intensity={0.25} color="#2a1a08" />
-      <LanternLight healthPct={healthPct} />
+      <LanternLight healthPct={health} />
       <MazeWalls grid={level.grid} />
       <Floor grid={level.grid} />
+      <PlatformFloors grid={level.grid} />
+      <PlatformWalls grid={level.grid} />
+      <StairsDisplay grid={level.grid} />
       <Ceiling grid={level.grid} />
-      <Player grid={level.grid} gameState={gameState} mobileMove={mobileMove} mobileLookRef={mobileLookRef} />
+      <SpikesDisplay grid={level.grid} />
+      <Player grid={level.grid} gameState={gameState} mobileMove={mobileMove} mobileLookRef={mobileLookRef} doorsOpenedRef={doorsOpenedRef} />
       <GameLogic
         grid={level.grid}
         crystalsNeeded={level.crystalsNeeded}
@@ -421,13 +982,28 @@ function SceneContent({ level, health, mobileMove, mobileLookRef, onCrystalColle
         onLevelComplete={onLevelComplete}
         onDeath={onDeath}
         onMinimapUpdate={onMinimapUpdate}
+        onKeyCollected={onKeyCollected}
+        onDoorOpened={onDoorOpened}
+        doorsOpenedRef={doorsOpenedRef}
       />
       <fog attach="fog" args={['#0a0a05', 20, 55]} />
     </>
   )
 }
 
-export default function Game3D({ level, health, mobileMove, mobileLookRef, onCrystalCollected, onHealthChange, onLevelComplete, onDeath, onMinimapUpdate }) {
+export default function Game3D({
+  level,
+  health,
+  mobileMove,
+  mobileLookRef,
+  onCrystalCollected,
+  onHealthChange,
+  onLevelComplete,
+  onDeath,
+  onMinimapUpdate,
+  onKeyCollected,
+  onDoorOpened,
+}) {
   return (
     <Canvas
       shadows
@@ -445,6 +1021,8 @@ export default function Game3D({ level, health, mobileMove, mobileLookRef, onCry
         onLevelComplete={onLevelComplete}
         onDeath={onDeath}
         onMinimapUpdate={onMinimapUpdate}
+        onKeyCollected={onKeyCollected}
+        onDoorOpened={onDoorOpened}
       />
       <PointerLockControls />
     </Canvas>

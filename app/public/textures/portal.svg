@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <radialGradient id="portalGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fbbf24" stop-opacity="0.8"/>
+      <stop offset="50%" stop-color="#f59e0b" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#b45309" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="portalInner" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#fef3c7" stop-opacity="0.6"/>
+      <stop offset="60%" stop-color="#f59e0b" stop-opacity="0.2"/>
+      <stop offset="100%" stop-color="#92400e" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="128" height="128" fill="transparent"/>
+  <circle cx="64" cy="64" r="50" fill="url(#portalGlow)"/>
+  <circle cx="64" cy="64" r="35" fill="url(#portalInner)" stroke="#fbbf24" stroke-width="2"/>
+  <circle cx="64" cy="64" r="28" fill="none" stroke="#f59e0b" stroke-width="1" opacity="0.5"/>
+  <circle cx="64" cy="64" r="20" fill="none" stroke="#fcd34d" stroke-width="0.5" opacity="0.3"/>
+</svg>

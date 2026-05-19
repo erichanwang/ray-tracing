@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <rect width="256" height="256" fill="#1a1a0e"/>
+  <!-- Brick rows -->
+  <g stroke="#0d0d08" stroke-width="2" fill="none">
+    <!-- Row 1 -->
+    <rect x="2" y="2" width="62" height="30" fill="#1e1e12"/>
+    <rect x="66" y="2" width="62" height="30" fill="#18180c"/>
+    <rect x="130" y="2" width="62" height="30" fill="#1c1c10"/>
+    <rect x="194" y="2" width="60" height="30" fill="#202014"/>
+    <!-- Row 2 (offset) -->
+    <rect x="-14" y="34" width="62" height="30" fill="#1c1c10"/>
+    <rect x="50" y="34" width="62" height="30" fill="#1a1a0e"/>
+    <rect x="114" y="34" width="62" height="30" fill="#1e1e12"/>
+    <rect x="178" y="34" width="80" height="30" fill="#18180c"/>
+    <!-- Row 3 -->
+    <rect x="2" y="66" width="62" height="30" fill="#222216"/>
+    <rect x="66" y="66" width="62" height="30" fill="#1a1a0e"/>
+    <rect x="130" y="66" width="62" height="30" fill="#1c1c10"/>
+    <rect x="194" y="66" width="60" height="30" fill="#1e1e12"/>
+    <!-- Row 4 (offset) -->
+    <rect x="-10" y="98" width="62" height="30" fill="#1e1e12"/>
+    <rect x="54" y="98" width="62" height="30" fill="#18180c"/>
+    <rect x="118" y="98" width="62" height="30" fill="#202014"/>
+    <rect x="182" y="98" width="76" height="30" fill="#1c1c10"/>
+    <!-- Row 5 -->
+    <rect x="2" y="130" width="62" height="30" fill="#18180c"/>
+    <rect x="66" y="130" width="62" height="30" fill="#1e1e12"/>
+    <rect x="130" y="130" width="62" height="30" fill="#1a1a0e"/>
+    <rect x="194" y="130" width="60" height="30" fill="#222216"/>
+    <!-- Row 6 (offset) -->
+    <rect x="-12" y="162" width="62" height="30" fill="#1a1a0e"/>
+    <rect x="52" y="162" width="62" height="30" fill="#1c1c10"/>
+    <rect x="116" y="162" width="62" height="30" fill="#18180c"/>
+    <rect x="180" y="162" width="78" height="30" fill="#1e1e12"/>
+    <!-- Row 7 -->
+    <rect x="2" y="194" width="62" height="30" fill="#1c1c10"/>
+    <rect x="66" y="194" width="62" height="30" fill="#202014"/>
+    <rect x="130" y="194" width="62" height="30" fill="#1a1a0e"/>
+    <rect x="194" y="194" width="60" height="30" fill="#18180c"/>
+    <!-- Row 8 -->
+    <rect x="2" y="226" width="62" height="28" fill="#222216"/>
+    <rect x="66" y="226" width="62" height="28" fill="#1c1c10"/>
+    <rect x="130" y="226" width="62" height="28" fill="#1e1e12"/>
+  </g>
+  <!-- Highlights -->
+  <g fill="none" stroke="#2a2a18" stroke-width="1" opacity="0.3">
+    <line x1="3" y1="3" x2="64" y2="3"/>
+    <line x1="3" y1="3" x2="3" y2="31"/>
+    <line x1="67" y1="3" x2="128" y2="3"/>
+    <line x1="131" y1="3" x2="192" y2="3"/>
+  </g>
+</svg>
