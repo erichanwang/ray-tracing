@@ -978,7 +978,9 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
           // Wall is along X axis — project movement to Z (parallel)
           camera.position.z = vzOnly
           // Boost parallel velocity additively with a cap (not multiplicatively — avoids explosion)
-          velocityZ.current = Math.sign(velocityZ.current) * Math.min(Math.abs(velocityZ.current) * 1.05 + 0.8, wallRunSpeed)
+          // Use input direction as sign fallback when parallel velocity is near zero
+          const zSign = Math.abs(velocityZ.current) > 0.1 ? Math.sign(velocityZ.current) : (Math.abs(mz) > 0.01 ? Math.sign(mz) : 1)
+          velocityZ.current = zSign * Math.min(Math.abs(velocityZ.current) * 1.05 + 0.8, wallRunSpeed)
           velocityX.current *= 0.3
           wallRunActive = true
         } else {
@@ -999,7 +1001,9 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
         if (!checkCollision(vxOnly, camera.position.z)) {
           // Wall is along Z axis — project movement to X (parallel)
           camera.position.x = vxOnly
-          velocityX.current = Math.sign(velocityX.current) * Math.min(Math.abs(velocityX.current) * 1.05 + 0.8, wallRunSpeed)
+          // Use input direction as sign fallback when parallel velocity is near zero
+          const xSign = Math.abs(velocityX.current) > 0.1 ? Math.sign(velocityX.current) : (Math.abs(mx) > 0.01 ? Math.sign(mx) : 1)
+          velocityX.current = xSign * Math.min(Math.abs(velocityX.current) * 1.05 + 0.8, wallRunSpeed)
           velocityZ.current *= 0.3
           wallRunActive = true
         } else {
@@ -1131,6 +1135,11 @@ function Player({ grid, gameState, mobileMove, mobileLookRef, doorsOpenedRef, pa
       const bobAmount = (sprinting || isSliding.current) ? 0.04 * Math.sin(bobPhase.current) : 0.025 * Math.sin(bobPhase.current)
       camera.position.y += bobAmount
     }
+
+    // ---- Slide FOV effect (widen from 90 to 100 during crouch-slide) ----
+    const targetFov = isSliding.current ? 100 : 90
+    camera.fov += (targetFov - camera.fov) * Math.min(8 * dt, 1)
+    camera.updateProjectionMatrix()
 
   })
 
@@ -1479,7 +1488,9 @@ export default function Game3D({
 }) {
   const [ready, setReady] = useState(false)
   const [showClickHint, setShowClickHint] = useState(false)
+  const [showMobileHint, setShowMobileHint] = useState(false)
   const prevPausedRef = useRef(paused)
+  const mobileHintTimer = useRef(null)
   const canvasContainerRef = useRef(null)
 
   // Detect mobile/touch devices — PointerLockControls not supported there
@@ -1523,10 +1534,21 @@ export default function Game3D({
   // When paused transitions true→false (Resume), show click hint since pointer is unlocked.
   useEffect(() => {
     if (prevPausedRef.current === true && paused === false && ready) {
-      setShowClickHint(true)
+      if (isMobile) {
+        setShowMobileHint(true)
+        if (mobileHintTimer.current) clearTimeout(mobileHintTimer.current)
+        mobileHintTimer.current = setTimeout(() => setShowMobileHint(false), 1000)
+      } else {
+        setShowClickHint(true)
+      }
     }
     prevPausedRef.current = paused
-  }, [paused, ready])
+  }, [paused, ready, isMobile])
+
+  // Cleanup mobile hint timer
+  useEffect(() => {
+    return () => { if (mobileHintTimer.current) clearTimeout(mobileHintTimer.current) }
+  }, [])
 
   // On mobile, just mark ready directly — no pointer lock needed
   const handleMobileStart = useCallback(() => {
@@ -1616,6 +1638,17 @@ export default function Game3D({
         >
           <div className="bg-black/40 backdrop-blur-sm px-6 py-3 rounded-lg border border-amber-700/20">
             <span className="text-amber-400/70 text-sm">Click to continue</span>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile unpause hint — auto-fades after 1 second */}
+      {isMobile && (
+        <div
+          className={`absolute inset-0 z-15 flex items-center justify-center pointer-events-none transition-opacity duration-300 ${showMobileHint && !paused ? 'opacity-100' : 'opacity-0'}`}
+        >
+          <div className="bg-black/40 backdrop-blur-sm px-6 py-3 rounded-lg border border-amber-700/20">
+            <span className="text-amber-400/70 text-sm">Tap to resume</span>
           </div>
         </div>
       )}
